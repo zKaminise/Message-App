@@ -1,0 +1,116 @@
+package com.example.messageapp.data
+
+import android.app.Activity
+import com.google.firebase.FirebaseException
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.PhoneAuthCredential
+import com.google.firebase.auth.PhoneAuthOptions
+import com.google.firebase.auth.PhoneAuthProvider
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.tasks.await
+import java.util.concurrent.TimeUnit
+
+class AuthRepository(
+    private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
+) {
+
+    suspend fun signUpEmail(email: String, pass: String) {
+        auth.createUserWithEmailAndPassword(email, pass).await()
+        upsertUserProfile(); saveFcmToken()
+    }
+    suspend fun signInEmail(email: String, pass: String) {
+        auth.signInWithEmailAndPassword(email, pass).await()
+        upsertUserProfile(); saveFcmToken()
+    }
+    suspend fun sendPasswordReset(email: String) {
+        auth.sendPasswordResetEmail(email).await()
+    }
+
+    suspend fun signInAnonymouslyAndUpsert() {
+        auth.signInAnonymously().await()
+        upsertUserProfile(); saveFcmToken()
+    }
+
+    fun phoneVerifyCallbacks(
+        onCodeSent: (verificationId: String) -> Unit,
+        onInstantSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ): PhoneAuthProvider.OnVerificationStateChangedCallbacks =
+        object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+            override fun onVerificationCompleted(cred: PhoneAuthCredential) {
+                auth.signInWithCredential(cred)
+                    .addOnSuccessListener { onInstantSuccess() }
+                    .addOnFailureListener { onError(it) }
+            }
+            override fun onVerificationFailed(e: FirebaseException) {
+                onError(e)
+            }
+            override fun onCodeSent(
+                verificationId: String,
+                token: PhoneAuthProvider.ForceResendingToken
+            ) { onCodeSent(verificationId) }
+        }
+
+    fun startPhoneVerification(
+        activity: Activity,
+        phone: String,
+        callbacks: PhoneAuthProvider.OnVerificationStateChangedCallbacks
+    ) {
+        val opts = PhoneAuthOptions.newBuilder(auth)
+            .setPhoneNumber(phone)
+            .setTimeout(60L, TimeUnit.SECONDS)
+            .setActivity(activity)
+            .setCallbacks(callbacks)
+            .build()
+        PhoneAuthProvider.verifyPhoneNumber(opts)
+    }
+
+    suspend fun signInWithPhoneCredential(verificationId: String, code: String) {
+        val cred = PhoneAuthProvider.getCredential(verificationId, code)
+        auth.signInWithCredential(cred).await()
+        upsertUserProfile(); saveFcmToken()
+    }
+
+    suspend fun upsertUserProfile() {
+        val u = auth.currentUser ?: return
+        val doc = db.collection("users").document(u.uid)
+        val data = mapOf(
+            "displayName" to (u.displayName ?: u.email ?: u.phoneNumber ?: "User"),
+            "photoUrl" to (u.photoUrl?.toString() ?: ""),
+            "email" to (u.email ?: ""),
+            "phone" to (u.phoneNumber ?: ""),
+            "bio" to "",
+            "isOnline" to true,
+            "lastSeen" to FieldValue.serverTimestamp()
+        )
+        db.runTransaction { tx ->
+            if (tx.get(doc).exists()) tx.update(doc, data) else tx.set(doc, data)
+        }.await()
+    }
+
+    suspend fun saveFcmToken() {
+        val uid = auth.currentUser?.uid ?: return
+        val token = FirebaseMessaging.getInstance().token.await()
+        db.collection("users").document(uid)
+            .update("fcmTokens", FieldValue.arrayUnion(token)).await()
+    }
+
+    suspend fun updatePresence(online: Boolean) {
+        val uid = auth.currentUser?.uid ?: return
+        db.collection("users").document(uid)
+            .update("isOnline", online, "lastSeen", FieldValue.serverTimestamp()).await()
+    }
+
+    suspend fun signOutAndRemoveToken() {
+        val uid = auth.currentUser?.uid
+        val token = FirebaseMessaging.getInstance().token.await()
+        if (uid != null) {
+            db.collection("users").document(uid)
+                .update("fcmTokens", FieldValue.arrayRemove(token)).await()
+        }
+        auth.signOut()
+    }
+}

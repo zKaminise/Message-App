@@ -8,6 +8,7 @@ plugins {
 
 android {
     namespace = "com.example.messageapp"
+    // Se você NÃO tiver o Android 36 instalado no SDK Manager, use 34.
     compileSdk = 36
 
     defaultConfig {
@@ -29,20 +30,19 @@ android {
             )
         }
     }
+
+    // Recomendo compilar com Java 17 (AGP moderno gosta de 17)
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "11"
-    }
-    buildFeatures {
-        compose = true
-    }
+    kotlinOptions { jvmTarget = "17" }
+
+    buildFeatures { compose = true }
 }
 
 dependencies {
-
+    // --- suas libs do catálogo (ok) ---
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -59,12 +59,28 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 
-    // Import the Firebase BoM
-    implementation(platform("com.google.firebase:firebase-bom:34.1.0"))
+    implementation("androidx.navigation:navigation-compose:2.7.7")
+    implementation("androidx.compose.material:material-icons-extended:1.6.8")
 
 
-    // TODO: Add the dependencies for Firebase products you want to use
-    // When using the BoM, don't specify versions in Firebase dependencies
-    implementation("com.google.firebase:firebase-analytics")
+    implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("io.coil-kt:coil-video:2.6.0") // thumbnail de vídeo
+    implementation("androidx.emoji2:emoji2:1.4.0") // emojis nativos
 
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
+
+
+    // --- Firebase: use UMA única BOM ---
+    implementation(platform("com.google.firebase:firebase-bom:33.2.0"))
+
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-storage-ktx")
+    implementation("com.google.firebase:firebase-messaging-ktx")
+    // (opcional) analytics
+    implementation("com.google.firebase:firebase-analytics-ktx")
+
+    // Para usar .await() nas Tasks do Firebase
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 }
