@@ -104,10 +104,15 @@ private fun PhoneAuthSection(
             val cb = repo.phoneVerifyCallbacks(
                 onCodeSent = { v -> vid = v },
                 onInstantSuccess = {
-                    scope.launch { repo.upsertUserProfile(); repo.saveFcmToken(); onLogged() }
+                    scope.launch {
+                        repo.upsertUserProfile()
+                        repo.saveFcmTokenInBackground()
+                        onLogged()
+                    }
                 },
                 onError = { e -> msg = e.message }
             )
+
             repo.startPhoneVerification(activity, phone, cb)
         }) { Text("Enviar código") }
     } else {

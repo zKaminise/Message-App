@@ -25,26 +25,34 @@ class ChatRepository(
         val data = mapOf(
             "type" to "direct",
             "members" to listOf(uidA, uidB),
+            "visibleFor" to listOf(uidA, uidB),
             "updatedAt" to FieldValue.serverTimestamp()
         )
-
         ref.set(data, SetOptions.merge()).await()
 
-        StorageAcl.ensureMemberMarker(chatId, uidA)
+        runCatching { StorageAcl.ensureMemberMarker(chatId, uidA) }
 
         return chatId
     }
 
+
     fun observeChats(uid: String, onUpdate: (List<Chat>) -> Unit): ListenerRegistration =
         chats()
-            .whereArrayContains("members", uid)
+            .whereArrayContains("visibleFor", uid)
             .orderBy("updatedAt", Query.Direction.DESCENDING)
-            .addSnapshotListener { qs, _ ->
+            .addSnapshotListener { qs, e ->
+                if (e != null) {
+                    // Não derruba a lista se der erro de permissão/rede
+                    android.util.Log.w("ChatRepository", "observeChats error", e)
+                    return@addSnapshotListener
+                }
                 val items = qs?.documents?.mapNotNull {
                     it.toObject(Chat::class.java)?.copy(id = it.id)
                 }.orEmpty()
                 onUpdate(items)
             }
+
+
 
     fun observeChat(chatId: String, onUpdate: (Chat?) -> Unit): ListenerRegistration =
         chats().document(chatId)
@@ -70,6 +78,22 @@ class ChatRepository(
                 onUpdate(items)
             }
 
+    suspend fun migrateVisibleForFor(uid: String) {
+        val snap = chats()
+            .whereArrayContains("members", uid)
+            .get().await()
+
+        val batch = db.batch()
+        for (doc in snap.documents) {
+            val vis = (doc.get("visibleFor") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+            if (!vis.contains(uid)) {
+                batch.update(doc.reference, mapOf("visibleFor" to FieldValue.arrayUnion(uid)))
+            }
+        }
+        batch.commit().await()
+    }
+
+
     private fun markDeliveredForIncoming(chatId: String, myUid: String, items: List<Message>) {
         val ts = FieldValue.serverTimestamp()
         val batch = db.batch()
@@ -87,27 +111,53 @@ class ChatRepository(
 
     suspend fun sendText(chatId: String, senderId: String, textEnc: String) {
         val chatRef = chats().document(chatId)
-        val msgRef = chatRef.collection("messages").document()
-        db.runBatch { b ->
-            b.set(
-                msgRef, mapOf(
-                    "senderId" to senderId,
-                    "type" to "text",
-                    "textEnc" to textEnc,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "deliveredTo" to mapOf<String, Any>(),
-                    "readBy" to mapOf<String, Any>()
-                )
+        val msgRef  = chatRef.collection("messages").document()
+        db.runTransaction { tx ->
+            val snap = tx.get(chatRef)
+            val members = (snap.get("members") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+
+            tx.set(msgRef, mapOf(
+                "senderId" to senderId,
+                "type" to "text",
+                "textEnc" to textEnc,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "deliveredTo" to mapOf<String, Any>(),
+                "readBy" to mapOf<String, Any>()
+            ))
+
+            val update = mutableMapOf<String, Any>(
+                "lastMessageEnc" to textEnc,
+                "updatedAt" to FieldValue.serverTimestamp()
             )
-            b.update(
-                chatRef, mapOf(
-                    "lastMessageEnc" to textEnc,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            )
+            if (members.isNotEmpty()) {
+                update["visibleFor"] = FieldValue.arrayUnion(*members.toTypedArray())
+            }
+            tx.update(chatRef, update)
+            null
         }.await()
     }
 
+    suspend fun hideChatForUser(chatId: String, uid: String) {
+        chats().document(chatId)
+            .update("visibleFor", FieldValue.arrayRemove(uid))
+            .await()
+    }
+
+    suspend fun leaveGroup(chatId: String, uid: String) {
+        chats().document(chatId)
+            .update(
+                mapOf(
+                    "members" to FieldValue.arrayRemove(uid),
+                    "visibleFor" to FieldValue.arrayRemove(uid),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        StorageAcl.removeMemberMarker(chatId, uid)
+    }
+
+    suspend fun deleteGroup(chatId: String) {
+        chats().document(chatId).delete().await()
+    }
 
     suspend fun markAsRead(chatId: String, uid: String) {
         val msgsRef = chats().document(chatId).collection("messages")
@@ -142,16 +192,20 @@ class ChatRepository(
             "name" to name,
             "ownerId" to ownerId,
             "members" to allMembers,
+            "visibleFor" to allMembers,
             "updatedAt" to FieldValue.serverTimestamp()
         )
         if (photoUrl != null) data["photoUrl"] = photoUrl
 
         doc.set(data).await()
+        val chatId = doc.id
 
-        StorageAcl.ensureMemberMarker(doc.id, ownerId)
+        runCatching { StorageAcl.ensureMemberMarker(chatId, ownerId) }
 
-        return doc.id
+        return chatId
     }
+
+
 
 
     suspend fun renameGroup(chatId: String, name: String) {

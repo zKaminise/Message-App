@@ -15,13 +15,16 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.concurrent.TimeUnit
+import com.google.firebase.firestore.SetOptions
 
 class AuthRepository(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
+    // Escopo seguro pra tarefas em background
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** -------- Email/senha -------- */
     suspend fun signUpEmail(email: String, pass: String) {
         auth.createUserWithEmailAndPassword(email, pass).await()
         upsertUserProfile()
@@ -38,12 +41,14 @@ class AuthRepository(
         auth.sendPasswordResetEmail(email).await()
     }
 
+    /** -------- Anônimo (opcional) -------- */
     suspend fun signInAnonymouslyAndUpsert() {
         auth.signInAnonymously().await()
         upsertUserProfile()
         saveFcmTokenSafe()
     }
 
+    /** -------- Telefone (OTP) -------- */
     fun phoneVerifyCallbacks(
         onCodeSent: (verificationId: String) -> Unit,
         onInstantSuccess: () -> Unit,
@@ -96,23 +101,26 @@ class AuthRepository(
         saveFcmTokenSafe()
     }
 
+    /** -------- Perfil/FCM/Presença -------- */
     suspend fun upsertUserProfile() {
         val u = auth.currentUser ?: return
         val doc = db.collection("users").document(u.uid)
+
         val data = mapOf(
             "displayName" to (u.displayName ?: u.email ?: u.phoneNumber ?: "User"),
-            "photoUrl" to (u.photoUrl?.toString()),
-            "email" to (u.email ?: ""),
-            "phone" to (u.phoneNumber ?: ""),
-            "bio" to "",
-            "isOnline" to true,
-            "lastSeen" to FieldValue.serverTimestamp()
+            "photoUrl"     to (u.photoUrl?.toString()),
+            "email"        to (u.email ?: ""),
+            "phone"        to (u.phoneNumber ?: ""),
+            "bio"          to "",
+            "isOnline"     to true,
+            "lastSeen"     to FieldValue.serverTimestamp()
         )
-        db.runTransaction { tx ->
-            if (tx.get(doc).exists()) tx.update(doc, data) else tx.set(doc, data)
-        }.await()
+
+        // 👉 sem leitura/transaction; só write com merge
+        doc.set(data, SetOptions.merge()).await()
     }
 
+    /** BEST-EFFORT: não quebra o login se FCM falhar */
     suspend fun saveFcmTokenSafe() {
         val uid = auth.currentUser?.uid ?: return
         runCatching {
@@ -120,13 +128,17 @@ class AuthRepository(
             db.collection("users").document(uid)
                 .update("fcmTokens", FieldValue.arrayUnion(token)).await()
         }
+        // Se falhar, seguimos sem token; tentamos de novo mais tarde.
     }
 
+    // --------- Apelidos de compatibilidade (para chamadas antigas) ---------
+    @Deprecated("Use saveFcmTokenSafe() ou saveFcmTokenInBackground()")
     suspend fun saveFcmToken() = saveFcmTokenSafe()
 
     fun saveFcmTokenInBackground() {
         ioScope.launch { saveFcmTokenSafe() }
     }
+    // ----------------------------------------------------------------------
 
     suspend fun updatePresence(online: Boolean) {
         val uid = auth.currentUser?.uid ?: return

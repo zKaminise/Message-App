@@ -1,7 +1,9 @@
 package com.example.messageapp.ui.chat
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -18,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.example.messageapp.data.StorageRepository
@@ -41,6 +44,7 @@ fun ChatScreen(
     var input by remember { mutableStateOf(TextFieldValue("")) }
     var query by remember { mutableStateOf(TextFieldValue("")) }
     val storage = remember { StorageRepository() }
+    val context = LocalContext.current
 
     LaunchedEffect(chatId) {
         vm.start(chatId)
@@ -56,34 +60,45 @@ fun ChatScreen(
         }
     }
 
+    // --------- PICKERS ---------
+    // Imagem & Vídeo: Android Photo Picker (não requer permissão)
     val pickImage = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null && myUid.isNotBlank()) {
             scope.launch { storage.sendMedia(chatId, myUid, uri, "image") }
         }
     }
     val pickVideo = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null && myUid.isNotBlank()) {
             scope.launch { storage.sendMedia(chatId, myUid, uri, "video") }
         }
     }
+
+    // Áudio & Arquivo: OpenDocument com persistência de permissão
     val pickAudio = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null && myUid.isNotBlank()) {
+            context.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
             scope.launch { storage.sendMedia(chatId, myUid, uri, "audio") }
         }
     }
     val pickFile = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null && myUid.isNotBlank()) {
+            context.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
             scope.launch { storage.sendMedia(chatId, myUid, uri, "file") }
         }
     }
+    // ---------------------------
 
     Scaffold(
         topBar = {
@@ -147,14 +162,33 @@ fun ChatScreen(
                     .padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Botões de anexos
-                AssistChip(onClick = { pickImage.launch("image/*") }, label = { Text("Imagem") })
+                AssistChip(
+                    onClick = {
+                        pickImage.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    label = { Text("Imagem") }
+                )
                 Spacer(Modifier.width(6.dp))
-                AssistChip(onClick = { pickVideo.launch("video/*") }, label = { Text("Vídeo") })
+                AssistChip(
+                    onClick = {
+                        pickVideo.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                        )
+                    },
+                    label = { Text("Vídeo") }
+                )
                 Spacer(Modifier.width(6.dp))
-                AssistChip(onClick = { pickAudio.launch("audio/*") }, label = { Text("Áudio") })
+                AssistChip(
+                    onClick = { pickAudio.launch(arrayOf("audio/*")) },
+                    label = { Text("Áudio") }
+                )
                 Spacer(Modifier.width(6.dp))
-                AssistChip(onClick = { pickFile.launch("*/*") }, label = { Text("Arquivo") })
+                AssistChip(
+                    onClick = { pickFile.launch(arrayOf("*/*")) },
+                    label = { Text("Arquivo") }
+                )
             }
 
             Row(
