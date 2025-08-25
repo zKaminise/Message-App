@@ -9,6 +9,10 @@ import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.concurrent.TimeUnit
 
@@ -16,22 +20,28 @@ class AuthRepository(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     suspend fun signUpEmail(email: String, pass: String) {
         auth.createUserWithEmailAndPassword(email, pass).await()
-        upsertUserProfile(); saveFcmToken()
+        upsertUserProfile()
+        saveFcmTokenSafe()
     }
+
     suspend fun signInEmail(email: String, pass: String) {
         auth.signInWithEmailAndPassword(email, pass).await()
-        upsertUserProfile(); saveFcmToken()
+        upsertUserProfile()
+        saveFcmTokenSafe()
     }
+
     suspend fun sendPasswordReset(email: String) {
         auth.sendPasswordResetEmail(email).await()
     }
 
     suspend fun signInAnonymouslyAndUpsert() {
         auth.signInAnonymously().await()
-        upsertUserProfile(); saveFcmToken()
+        upsertUserProfile()
+        saveFcmTokenSafe()
     }
 
     fun phoneVerifyCallbacks(
@@ -42,16 +52,27 @@ class AuthRepository(
         object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
             override fun onVerificationCompleted(cred: PhoneAuthCredential) {
                 auth.signInWithCredential(cred)
-                    .addOnSuccessListener { onInstantSuccess() }
+                    .addOnSuccessListener {
+                        // Rodar funções suspend fora de callbacks, em background
+                        ioScope.launch {
+                            upsertUserProfile()
+                            saveFcmTokenSafe()
+                        }
+                        onInstantSuccess()
+                    }
                     .addOnFailureListener { onError(it) }
             }
+
             override fun onVerificationFailed(e: FirebaseException) {
                 onError(e)
             }
+
             override fun onCodeSent(
                 verificationId: String,
                 token: PhoneAuthProvider.ForceResendingToken
-            ) { onCodeSent(verificationId) }
+            ) {
+                onCodeSent(verificationId)
+            }
         }
 
     fun startPhoneVerification(
@@ -71,7 +92,8 @@ class AuthRepository(
     suspend fun signInWithPhoneCredential(verificationId: String, code: String) {
         val cred = PhoneAuthProvider.getCredential(verificationId, code)
         auth.signInWithCredential(cred).await()
-        upsertUserProfile(); saveFcmToken()
+        upsertUserProfile()
+        saveFcmTokenSafe()
     }
 
     suspend fun upsertUserProfile() {
@@ -79,7 +101,7 @@ class AuthRepository(
         val doc = db.collection("users").document(u.uid)
         val data = mapOf(
             "displayName" to (u.displayName ?: u.email ?: u.phoneNumber ?: "User"),
-            "photoUrl" to (u.photoUrl?.toString() ?: ""),
+            "photoUrl" to (u.photoUrl?.toString()),
             "email" to (u.email ?: ""),
             "phone" to (u.phoneNumber ?: ""),
             "bio" to "",
@@ -91,11 +113,19 @@ class AuthRepository(
         }.await()
     }
 
-    suspend fun saveFcmToken() {
+    suspend fun saveFcmTokenSafe() {
         val uid = auth.currentUser?.uid ?: return
-        val token = FirebaseMessaging.getInstance().token.await()
-        db.collection("users").document(uid)
-            .update("fcmTokens", FieldValue.arrayUnion(token)).await()
+        runCatching {
+            val token = FirebaseMessaging.getInstance().token.await()
+            db.collection("users").document(uid)
+                .update("fcmTokens", FieldValue.arrayUnion(token)).await()
+        }
+    }
+
+    suspend fun saveFcmToken() = saveFcmTokenSafe()
+
+    fun saveFcmTokenInBackground() {
+        ioScope.launch { saveFcmTokenSafe() }
     }
 
     suspend fun updatePresence(online: Boolean) {
@@ -106,10 +136,12 @@ class AuthRepository(
 
     suspend fun signOutAndRemoveToken() {
         val uid = auth.currentUser?.uid
-        val token = FirebaseMessaging.getInstance().token.await()
-        if (uid != null) {
-            db.collection("users").document(uid)
-                .update("fcmTokens", FieldValue.arrayRemove(token)).await()
+        runCatching {
+            val token = FirebaseMessaging.getInstance().token.await()
+            if (uid != null) {
+                db.collection("users").document(uid)
+                    .update("fcmTokens", FieldValue.arrayRemove(token)).await()
+            }
         }
         auth.signOut()
     }

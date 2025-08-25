@@ -2,11 +2,13 @@ package com.example.messageapp.data
 
 import com.example.messageapp.model.Chat
 import com.example.messageapp.model.Message
+import com.example.messageapp.storage.StorageAcl
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.tasks.await
+import com.google.firebase.firestore.SetOptions
 
 class ChatRepository(
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
@@ -19,16 +21,17 @@ class ChatRepository(
     suspend fun ensureDirectChat(uidA: String, uidB: String): String {
         val chatId = directChatIdFor(uidA, uidB)
         val ref = chats().document(chatId)
-        db.runTransaction { tx ->
-            val snap = tx.get(ref)
-            if (!snap.exists()) {
-                tx.set(ref, mapOf(
-                    "type" to "direct",
-                    "members" to listOf(uidA, uidB),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                ))
-            }
-        }.await()
+
+        val data = mapOf(
+            "type" to "direct",
+            "members" to listOf(uidA, uidB),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+
+        ref.set(data, SetOptions.merge()).await()
+
+        StorageAcl.ensureMemberMarker(chatId, uidA)
+
         return chatId
     }
 
@@ -49,7 +52,11 @@ class ChatRepository(
                 onUpdate(snap?.toObject(Chat::class.java)?.copy(id = snap.id))
             }
 
-    fun observeMessages(chatId: String, onUpdate: (List<Message>) -> Unit): ListenerRegistration =
+    fun observeMessages(
+        chatId: String,
+        myUid: String?,
+        onUpdate: (List<Message>) -> Unit
+    ): ListenerRegistration =
         chats().document(chatId)
             .collection("messages")
             .orderBy("createdAt", Query.Direction.ASCENDING)
@@ -57,25 +64,47 @@ class ChatRepository(
                 val items = qs?.documents?.mapNotNull {
                     it.toObject(Message::class.java)?.copy(id = it.id)
                 }.orEmpty()
+                if (!myUid.isNullOrBlank()) {
+                    markDeliveredForIncoming(chatId, myUid, items)
+                }
                 onUpdate(items)
             }
+
+    private fun markDeliveredForIncoming(chatId: String, myUid: String, items: List<Message>) {
+        val ts = FieldValue.serverTimestamp()
+        val batch = db.batch()
+        items.forEach { m ->
+            val already = m.deliveredTo.containsKey(myUid)
+            val isIncoming = m.senderId != myUid
+            if (isIncoming && !already && m.id != null) {
+                val ref = chats().document(chatId)
+                    .collection("messages").document(m.id!!)
+                batch.update(ref, "deliveredTo.$myUid", ts)
+            }
+        }
+        batch.commit()
+    }
 
     suspend fun sendText(chatId: String, senderId: String, textEnc: String) {
         val chatRef = chats().document(chatId)
         val msgRef = chatRef.collection("messages").document()
         db.runBatch { b ->
-            b.set(msgRef, mapOf(
-                "senderId" to senderId,
-                "type" to "text",
-                "textEnc" to textEnc,
-                "createdAt" to FieldValue.serverTimestamp(),
-                "deliveredTo" to mapOf<String, Any>(),
-                "readBy" to mapOf<String, Any>()
-            ))
-            b.update(chatRef, mapOf(
-                "lastMessage" to "[texto]",
-                "updatedAt" to FieldValue.serverTimestamp()
-            ))
+            b.set(
+                msgRef, mapOf(
+                    "senderId" to senderId,
+                    "type" to "text",
+                    "textEnc" to textEnc,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "deliveredTo" to mapOf<String, Any>(),
+                    "readBy" to mapOf<String, Any>()
+                )
+            )
+            b.update(
+                chatRef, mapOf(
+                    "lastMessage" to "[texto]",
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            )
         }.await()
     }
 
@@ -99,34 +128,69 @@ class ChatRepository(
         ref.update("deliveredTo.$uid", FieldValue.serverTimestamp()).await()
     }
 
-    suspend fun createGroup(name: String, photoUrl: String?, members: List<String>): String {
-        val ref = db.collection("chats").document()
-        ref.set(mapOf(
+    suspend fun createGroup(
+        name: String,
+        ownerId: String,
+        members: List<String>,
+        photoUrl: String? = null
+    ): String {
+        val allMembers = members.distinct()
+        val doc = chats().document()
+        val data = mutableMapOf<String, Any>(
             "type" to "group",
-            "members" to members,
             "name" to name,
-            "photoUrl" to photoUrl,
+            "ownerId" to ownerId,
+            "members" to allMembers,
             "updatedAt" to FieldValue.serverTimestamp()
-        )).await()
-        return ref.id
+        )
+        if (photoUrl != null) data["photoUrl"] = photoUrl
+
+        doc.set(data).await()
+        val chatId = doc.id
+
+        StorageAcl.ensureMemberMarker(chatId, ownerId)
+
+        return chatId
     }
+
+    suspend fun renameGroup(chatId: String, name: String) {
+        chats().document(chatId).update("name", name).await()
+    }
+
     suspend fun addMember(chatId: String, uid: String) {
         chats().document(chatId).update("members", FieldValue.arrayUnion(uid)).await()
+        StorageAcl.ensureMemberMarker(chatId, uid)
     }
+
+    suspend fun addMembers(chatId: String, newMembers: List<String>) {
+        val distinct = newMembers.distinct()
+        chats().document(chatId)
+            .update("members", FieldValue.arrayUnion(*distinct.toTypedArray()))
+            .await()
+        distinct.forEach { uid -> StorageAcl.ensureMemberMarker(chatId, uid) }
+    }
+
     suspend fun removeMember(chatId: String, uid: String) {
-        chats().document(chatId).update("members", FieldValue.arrayRemove(uid)).await()
+        chats().document(chatId)
+            .update("members", FieldValue.arrayRemove(uid))
+            .await()
+        StorageAcl.removeMemberMarker(chatId, uid)
     }
+
     suspend fun updateGroupMeta(chatId: String, name: String?, photoUrl: String?) {
         val map = mutableMapOf<String, Any>()
         if (name != null) map["name"] = name
         if (photoUrl != null) map["photoUrl"] = photoUrl
-        chats().document(chatId).update(map).await()
+        if (map.isNotEmpty()) chats().document(chatId).update(map).await()
     }
+
     suspend fun unpinMessage(chatId: String) {
         chats().document(chatId)
-            .update(mapOf(
-                "pinnedMessageId" to FieldValue.delete(),
-                "pinnedSnippet" to FieldValue.delete()
-            )).await()
+            .update(
+                mapOf(
+                    "pinnedMessageId" to FieldValue.delete(),
+                    "pinnedSnippet" to FieldValue.delete()
+                )
+            ).await()
     }
 }

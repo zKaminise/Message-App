@@ -12,7 +12,12 @@
           "package_name": "com.example.messageapp"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "99163971579-eunq1k0iv23sesh3p9ukqiccevna0t59.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBl8iP-xgOLhEjT3bJcJ7vNIlfozMEHbkQ"
@@ -20,7 +25,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "99163971579-eunq1k0iv23sesh3p9ukqiccevna0t59.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

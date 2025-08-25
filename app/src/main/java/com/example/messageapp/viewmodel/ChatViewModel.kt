@@ -6,7 +6,10 @@ import com.example.messageapp.data.ChatRepository
 import com.example.messageapp.model.Chat
 import com.example.messageapp.model.Message
 import com.example.messageapp.utils.Crypto
+import com.example.messageapp.storage.StorageAcl
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -25,25 +28,36 @@ class ChatViewModel(
     private var regMsgs: ListenerRegistration? = null
 
     fun start(chatId: String) {
-        val myUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+        val myUid: String? = FirebaseAuth.getInstance().currentUser?.uid
+
+        if (!myUid.isNullOrBlank()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching { StorageAcl.ensureMemberMarker(chatId, myUid) }
+            }
+        }
+
+        regChat?.remove()
+        regChat = repo.observeChat(chatId) { c ->
+            _chat.value = c
+        }
+
         regMsgs?.remove()
-        regMsgs = repo.observeMessages(chatId) { list ->
+        regMsgs = repo.observeMessages(chatId, myUid) { list ->
             _messages.value = list
-            if (myUid != null) {
+
+            if (!myUid.isNullOrBlank()) {
                 viewModelScope.launch {
-                    list.filter { it.senderId != myUid && !it.deliveredTo.containsKey(myUid) }
-                        .forEach { msg ->
-                            repo.markDelivered(chatId, msg.id, myUid)
-                        }
+                    runCatching { repo.markAsRead(chatId, myUid) }
                 }
             }
         }
     }
 
-
     fun stop() {
         regChat?.remove()
         regMsgs?.remove()
+        regChat = null
+        regMsgs = null
     }
 
     fun markRead(chatId: String, myUid: String) = viewModelScope.launch {
@@ -56,9 +70,16 @@ class ChatViewModel(
     }
 
     fun pin(chatId: String, m: Message) = viewModelScope.launch {
-        val snippet = if (m.type == "text") Crypto.decrypt(m.textEnc).take(60) else "[${m.type}]"
-        repo.pinMessage(chatId, m.id, snippet)
+        val id = m.id ?: return@launch
+        val snippet = if (m.type == "text") {
+            Crypto.decrypt(m.textEnc).take(60)
+        } else {
+            "[${m.type}]"
+        }
+        repo.pinMessage(chatId, id, snippet)
     }
 
-    fun unpin(chatId: String) = viewModelScope.launch { repo.unpinMessage(chatId) }
+    fun unpin(chatId: String) = viewModelScope.launch {
+        repo.unpinMessage(chatId)
+    }
 }

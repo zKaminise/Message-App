@@ -65,10 +65,12 @@ dependencies {
 
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("io.coil-kt:coil-video:2.6.0") // thumbnail de vídeo
-    implementation("androidx.emoji2:emoji2:1.4.0") // emojis nativos
 
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
+
+    implementation("androidx.emoji2:emoji2:1.5.0")
+    implementation("androidx.emoji2:emoji2-bundled:1.5.0")
 
 
     // --- Firebase: use UMA única BOM ---
@@ -78,7 +80,6 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-messaging-ktx")
-    // (opcional) analytics
     implementation("com.google.firebase:firebase-analytics-ktx")
 
     // Para usar .await() nas Tasks do Firebase
