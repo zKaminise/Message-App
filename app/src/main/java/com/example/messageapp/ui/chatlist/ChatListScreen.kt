@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.messageapp.model.Chat
 import com.example.messageapp.viewmodel.ChatListViewModel
+import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,16 +55,42 @@ fun ChatListScreen(
         }
     ) { pad ->
         LazyColumn(Modifier.padding(pad)) {
-            items(chats) { c -> ChatRow(c) { onOpenChat(c.id!!) } }
+            items(chats) { c ->
+                ChatRow(myUid = myUid, c = c) { onOpenChat(c.id!!) }
+            }
+
         }
     }
 }
 
 @Composable
-private fun ChatRow(c: Chat, onClick: () -> Unit) {
+private fun ChatRow(myUid: String, c: Chat, onClick: () -> Unit) {
+    var title by remember(c.id) { mutableStateOf(c.name ?: c.id ?: "") }
+
+    LaunchedEffect(c.id, c.type, c.members, myUid) {
+        if (c.type == "direct") {
+            val other = c.members.firstOrNull { it != myUid }
+            if (!other.isNullOrBlank()) {
+                val snap = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    .collection("users").document(other).get().await()
+                title = snap.getString("displayName") ?: "@${other.take(6)}"
+            } else {
+                title = "Conversa"
+            }
+        } else {
+            title = c.name ?: "Grupo"
+        }
+    }
+
+    val preview = remember(c.lastMessageEnc, c.lastMessage, c.pinnedSnippet) {
+        c.lastMessageEnc?.let { com.example.messageapp.utils.Crypto.decrypt(it) }
+            ?: c.pinnedSnippet
+            ?: (c.lastMessage ?: "")
+    }
+
     ListItem(
-        headlineContent = { Text(c.name ?: c.id ?: "") },
-        supportingContent = { Text(c.pinnedSnippet ?: (c.lastMessage ?: "")) },
+        headlineContent   = { Text(title) },
+        supportingContent = { if (preview.isNotBlank()) Text(preview) },
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)

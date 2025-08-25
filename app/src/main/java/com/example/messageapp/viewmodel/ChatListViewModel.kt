@@ -16,13 +16,15 @@ class ChatListViewModel(
 
     private var reg: ListenerRegistration? = null
 
-    fun start(uid: String) {
+    fun start(myUid: String) {
         reg?.remove()
-        reg = repo.observeChats(uid) { _chats.value = it }
+        reg = repo.observeChats(myUid) { list ->
+            _chats.value = list
+        }
     }
 
-    override fun onCleared() {
+    fun stop() {
         reg?.remove()
-        super.onCleared()
+        reg = null
     }
 }

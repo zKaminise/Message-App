@@ -101,12 +101,13 @@ class ChatRepository(
             )
             b.update(
                 chatRef, mapOf(
-                    "lastMessage" to "[texto]",
+                    "lastMessageEnc" to textEnc,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             )
         }.await()
     }
+
 
     suspend fun markAsRead(chatId: String, uid: String) {
         val msgsRef = chats().document(chatId).collection("messages")
@@ -146,12 +147,12 @@ class ChatRepository(
         if (photoUrl != null) data["photoUrl"] = photoUrl
 
         doc.set(data).await()
-        val chatId = doc.id
 
-        StorageAcl.ensureMemberMarker(chatId, ownerId)
+        StorageAcl.ensureMemberMarker(doc.id, ownerId)
 
-        return chatId
+        return doc.id
     }
+
 
     suspend fun renameGroup(chatId: String, name: String) {
         chats().document(chatId).update("name", name).await()

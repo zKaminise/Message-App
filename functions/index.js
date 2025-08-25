@@ -1,64 +1,51 @@
-// functions/index.js — Firebase Functions v5 (API v2) + Admin v12 + ESM
+// Firebase Functions v5 (API v2) + Admin v12 + ESM
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldPath, FieldValue } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
-import { getStorage } from "firebase-admin/storage";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 initializeApp();
 
 const db = getFirestore();
 const messaging = getMessaging();
+const bucket = getStorage().bucket();
 
-/**
- * 1) Marcadores de membresia no Storage quando um chat é criado
- *    (garante que todos os membros consigam acessar /chats/{chatId}/...)
- */
+/** Cria marcadores de membresia no Storage quando um chat nasce */
 export const onChatCreatedMarkers = onDocumentCreated("chats/{chatId}", async (event) => {
-  const snap = event.data;
-  if (!snap) return;
-
-  const data = snap.data();
+  const data = event.data?.data();
   const members = Array.isArray(data?.members) ? data.members : [];
   const chatId = event.params.chatId;
   if (!chatId || members.length === 0) return;
 
-  const bucket = getStorage().bucket();
-
   await Promise.all(
     members.map((uid) =>
-      bucket
-        .file(`chats/${chatId}/members/${uid}`)
-        .save(Buffer.alloc(0), {
-          resumable: false,
-          metadata: { contentType: "application/octet-stream" },
-        })
+      bucket.file(`chats/${chatId}/members/${uid}`).save(Buffer.alloc(0), {
+        resumable: false,
+        metadata: { contentType: "application/octet-stream" },
+      })
     )
   );
 });
 
-/**
- * 2) Push para membros (exceto o remetente) quando cria doc em /chats/{chatId}/messages/{messageId}
- */
+/** Push quando chega mensagem nova */
 export const onNewMessage = onDocumentCreated(
-  { region: "us-central1", document: "chats/{chatId}/messages/{messageId}" },
+  "chats/{chatId}/messages/{messageId}",
   async (event) => {
-    const snap = event.data;
-    if (!snap) return;
+    const msg = event.data?.data();
+    if (!msg) return;
 
     const chatId = event.params.chatId;
-    const msg = snap.data();
     const senderId = msg.senderId;
 
-    // Busca chat e filtra membros != remetente
     const chatSnap = await db.collection("chats").doc(chatId).get();
     if (!chatSnap.exists) return;
 
     const chat = chatSnap.data() || {};
-    const members = (Array.isArray(chat.members) ? chat.members : []).filter((u) => u !== senderId);
+    const members = (chat.members || []).filter((u) => u !== senderId);
     if (members.length === 0) return;
 
-    // Junta tokens (em chunks de 10 por limitação de "in")
+    // tokens em chunks de 10
     let tokens = [];
     for (let i = 0; i < members.length; i += 10) {
       const chunk = members.slice(i, i + 10);
@@ -69,38 +56,26 @@ export const onNewMessage = onDocumentCreated(
 
       usersSnap.forEach((u) => {
         const t = u.get("fcmTokens") || [];
-        tokens.push(...t);
+        tokens = tokens.concat(t);
       });
     }
-    tokens = [...new Set(tokens)].filter(Boolean);
+    tokens = Array.from(new Set(tokens)).filter(Boolean);
     if (tokens.length === 0) return;
 
-    // Corpo da notificação
     let body = "[mensagem]";
-    switch (msg.type) {
-      case "text":
-        body = "[texto]";
-        break;
-      case "image":
-        body = "[imagem]";
-        break;
-      case "video":
-        body = "[vídeo]";
-        break;
-      case "audio":
-        body = "[áudio]";
-        break;
-    }
-    const title = chat.name || "Nova mensagem";
+    if (msg.type === "text") body = "[texto]";
+    else if (msg.type === "image") body = "[imagem]";
+    else if (msg.type === "video") body = "[vídeo]";
+    else if (msg.type === "audio") body = "[áudio]";
 
-    // Envia
+    const title = chat.name || "Nova mensagem";
     const resp = await messaging.sendEachForMulticast({
       tokens,
       notification: { title, body },
       data: { chatId },
     });
 
-    // Limpa tokens inválidos
+    // remove tokens inválidos
     const invalid = [];
     resp.responses.forEach((r, idx) => {
       if (!r.success) {
@@ -110,11 +85,10 @@ export const onNewMessage = onDocumentCreated(
         }
       }
     });
-
-    if (invalid.length) {
-      const usersSnap = await db.collection("users").get();
+    if (invalid.length > 0) {
+      const allUsers = await db.collection("users").get();
       const batch = db.batch();
-      usersSnap.forEach((doc) => {
+      allUsers.forEach((doc) => {
         invalid.forEach((tok) => {
           batch.update(doc.ref, { fcmTokens: FieldValue.arrayRemove(tok) });
         });

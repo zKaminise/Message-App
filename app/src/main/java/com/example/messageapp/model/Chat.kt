@@ -8,7 +8,13 @@ data class Chat(
     val members: List<String> = emptyList(),
     val name: String? = null,
     val photoUrl: String? = null,
+
+    val ownerId: String? = null,
+
+    val lastMessageEnc: String? = null,
+
     val lastMessage: String? = null,
+
     val updatedAt: Timestamp? = null,
     val pinnedMessageId: String? = null,
     val pinnedSnippet: String? = null
