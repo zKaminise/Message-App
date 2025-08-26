@@ -7,9 +7,10 @@ import com.google.firebase.firestore.FirebaseFirestoreSettings
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
-        val settings = FirebaseFirestoreSettings.Builder()
+
+        val db = FirebaseFirestore.getInstance()
+        db.firestoreSettings = FirebaseFirestoreSettings.Builder()
             .setPersistenceEnabled(true)
             .build()
-        FirebaseFirestore.getInstance().firestoreSettings = settings
     }
 }

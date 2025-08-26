@@ -23,55 +23,63 @@ class ChatWaveFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
-        FirebaseFirestore.getInstance().collection("users")
+        FirebaseFirestore.getInstance()
+            .collection("users")
             .document(uid)
             .update("fcmTokens", FieldValue.arrayUnion(token))
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        val chatId = message.data["chatId"]
-        val title = message.notification?.title ?: "Nova mensagem"
-        val body  = message.notification?.body  ?: "Você recebeu uma mensagem."
+        val chatId = message.data["chatId"] // pode ser null se a função não mandar
+        val title  = message.notification?.title ?: "Nova mensagem"
+        val body   = message.notification?.body  ?: "Você recebeu uma mensagem."
 
-        val channelId = "chat_${chatId ?: "default"}"
-        ensureChannel(channelId, title)
+        // Canal único p/ todas as mensagens
+        ensureChannel()
 
         val intent = Intent(this, MainActivity::class.java)
-            .putExtra("chatId", chatId)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        if (chatId != null) intent.putExtra("chatId", chatId)
 
         val pending = PendingIntent.getActivity(
-            this, 0, intent,
+            this,
+            (chatId?.hashCode() ?: 0),
+            intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.mipmap.ic_launcher) // use seu ícone se preferir
+        val notification = NotificationCompat.Builder(this, "messages")
+            .setSmallIcon(R.mipmap.ic_launcher) // troque por um ícone seu se quiser
             .setContentTitle(title)
             .setContentText(body)
-            .setContentIntent(pending)
             .setAutoCancel(true)
+            .setContentIntent(pending)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
+        // Android 13+: precisa da permissão em runtime
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
                 this, Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
             if (!granted) return
         }
+
         if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) return
 
-        NotificationManagerCompat.from(this)
-            .notify((System.currentTimeMillis() % Int.MAX_VALUE).toInt(), notification)
+        // Usa um ID estável por chat (agrupa notificações do mesmo chat)
+        val notifyId = chatId?.hashCode() ?: (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
+        NotificationManagerCompat.from(this).notify(notifyId, notification)
     }
 
-    private fun ensureChannel(channelId: String, name: String) {
+    private fun ensureChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId, name, NotificationManager.IMPORTANCE_HIGH
-            )
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channel = NotificationChannel(
+                "messages",
+                "Mensagens",
+                NotificationManager.IMPORTANCE_HIGH
+            )
             nm.createNotificationChannel(channel)
         }
     }

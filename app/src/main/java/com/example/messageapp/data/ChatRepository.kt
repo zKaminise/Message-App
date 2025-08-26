@@ -199,6 +199,7 @@ class ChatRepository(
 
         doc.set(data).await()
         val chatId = doc.id
+        allMembers.forEach { uid -> StorageAcl.ensureMemberMarker(chatId, uid) }
 
         runCatching { StorageAcl.ensureMemberMarker(chatId, ownerId) }
 

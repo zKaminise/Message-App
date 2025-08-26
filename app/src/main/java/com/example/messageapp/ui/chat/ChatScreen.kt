@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.example.messageapp.data.StorageRepository
 import com.example.messageapp.model.Message
+import com.example.messageapp.storage.StorageAcl
 import com.example.messageapp.utils.Crypto
 import com.example.messageapp.viewmodel.ChatViewModel
 import com.google.firebase.auth.FirebaseAuth
@@ -48,7 +49,10 @@ fun ChatScreen(
 
     LaunchedEffect(chatId) {
         vm.start(chatId)
-        if (myUid.isNotBlank()) vm.markRead(chatId, myUid)
+        if (myUid.isNotBlank()) {
+            vm.markRead(chatId, myUid)
+            StorageAcl.ensureMemberMarker(chatId, myUid)
+        }
     }
     DisposableEffect(Unit) { onDispose { vm.stop() } }
 
