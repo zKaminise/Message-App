@@ -82,6 +82,8 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging-ktx")
     implementation("com.google.firebase:firebase-analytics-ktx")
 
+    implementation("com.google.firebase:firebase-appcheck-playintegrity")
+
     // Para usar .await() nas Tasks do Firebase
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 }

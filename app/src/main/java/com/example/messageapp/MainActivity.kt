@@ -28,8 +28,9 @@ import com.example.messageapp.ui.contacts.ContactsScreen
 import com.example.messageapp.ui.groups.GroupCreateScreen
 import com.example.messageapp.ui.profile.ProfileScreen
 import com.example.messageapp.viewmodel.AuthViewModel
-import com.example.messageapp.viewmodel.ChatViewModel
 import com.google.firebase.auth.FirebaseAuth
+import com.example.messageapp.utils.SignatureLogger
+
 
 class MainActivity : ComponentActivity() {
 
@@ -38,6 +39,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
+            LaunchedEffect(Unit) {
+                // Loga SHA-1 e SHA-256 do APK em tempo de execução
+                SignatureLogger.log(this@MainActivity)
+            }
             MaterialTheme {
                 val nav = rememberNavController()
                 RequestPostNotificationsOnce()
@@ -46,7 +51,10 @@ class MainActivity : ComponentActivity() {
                 val initialChatId = remember { intent?.getStringExtra("chatId") }
                 var consumedChatId by remember { mutableStateOf(false) }
 
-                NavHost(navController = nav, startDestination = "auth") {
+                NavHost(
+                    navController = nav,
+                    startDestination = if (isLogged) "home" else "auth"
+                ) {
                     composable("auth") {
                         val repo = remember { AuthRepository() }
                         AuthScreen(repo = repo) {
@@ -71,7 +79,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     composable("contacts") {
-                        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                        val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
                         ContactsScreen(
                             myUid = uid,
                             onOpenChat = { id ->
@@ -95,7 +103,6 @@ class MainActivity : ComponentActivity() {
                             onBack = { nav.popBackStack() }
                         )
                     }
-
                     composable(
                         "chat/{chatId}",
                         arguments = listOf(navArgument("chatId") { type = NavType.StringType })

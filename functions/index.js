@@ -1,4 +1,3 @@
-// Firebase Functions v5 (API v2) + Admin v12 + ESM
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldPath, FieldValue } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
@@ -40,12 +39,11 @@ export const onNewMessage = onDocumentCreated(
 
     const chatSnap = await db.collection("chats").doc(chatId).get();
     if (!chatSnap.exists) return;
-
     const chat = chatSnap.data() || {};
     const members = (chat.members || []).filter((u) => u !== senderId);
     if (members.length === 0) return;
 
-    // tokens em chunks de 10
+    // Busca tokens em blocos de 10 users
     let tokens = [];
     for (let i = 0; i < members.length; i += 10) {
       const chunk = members.slice(i, i + 10);
@@ -62,20 +60,27 @@ export const onNewMessage = onDocumentCreated(
     tokens = Array.from(new Set(tokens)).filter(Boolean);
     if (tokens.length === 0) return;
 
+    // Corpo amigável: se for texto, decodifica um trecho do textEnc (base64)
     let body = "[mensagem]";
-    if (msg.type === "text") body = "[texto]";
-    else if (msg.type === "image") body = "[imagem]";
+    if (msg.type === "text") {
+      try {
+        body = Buffer.from(msg.textEnc || "", "base64").toString("utf8").slice(0, 60);
+      } catch {
+        body = "[texto]";
+      }
+    } else if (msg.type === "image") body = "[imagem]";
     else if (msg.type === "video") body = "[vídeo]";
     else if (msg.type === "audio") body = "[áudio]";
 
     const title = chat.name || "Nova mensagem";
+
+    // Envia como DATA-ONLY (Android decide a notificação)
     const resp = await messaging.sendEachForMulticast({
       tokens,
-      notification: { title, body },
-      data: { chatId },
+      data: { chatId, title, body, type: String(msg.type || "") },
     });
 
-    // remove tokens inválidos
+    // Remove tokens inválidos
     const invalid = [];
     resp.responses.forEach((r, idx) => {
       if (!r.success) {

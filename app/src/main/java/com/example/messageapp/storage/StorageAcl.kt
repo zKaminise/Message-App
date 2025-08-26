@@ -5,9 +5,8 @@ import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 
 object StorageAcl {
-    // ⚠️ Use o MESMO bucket que aparece no Console do Storage.
-    // Se no console estiver ...appspot.com, troque aqui.
-    private val st = FirebaseStorage.getInstance("gs://message-app-39bef.firebasestorage.app")
+    // Usa o bucket padrão do projeto (o mesmo do Console)
+    private val st = FirebaseStorage.getInstance()
 
     suspend fun ensureMemberMarker(chatId: String, uid: String) {
         val ref = st.reference.child("chats/$chatId/members/$uid")

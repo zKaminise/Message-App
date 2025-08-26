@@ -27,7 +27,12 @@ class StorageRepository(
         val url = ref.downloadUrl.await().toString()
 
         val chatRef = db.collection("chats").document(chatId)
-        val msgRef = chatRef.collection("messages").document()
+        val msgRef  = chatRef.collection("messages").document()
+
+        // Pega membros para atualizar visibleFor
+        val members = runCatching {
+            (chatRef.get().await().get("members") as? List<String>).orEmpty()
+        }.getOrElse { emptyList() }
 
         db.runBatch { b ->
             b.set(
@@ -42,10 +47,15 @@ class StorageRepository(
                     "readBy" to mapOf<String, Any>()
                 )
             )
-            b.update(
-                chatRef,
-                mapOf("lastMessage" to "[$type]", "updatedAt" to FieldValue.serverTimestamp())
+
+            val update = mutableMapOf<String, Any>(
+                "lastMessage" to "[$type]",
+                "updatedAt" to FieldValue.serverTimestamp()
             )
+            if (members.isNotEmpty()) {
+                update["visibleFor"] = FieldValue.arrayUnion(*members.toTypedArray())
+            }
+            b.update(chatRef, update)
         }.await()
     }
 }

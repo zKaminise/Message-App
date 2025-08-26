@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.example.messageapp.data.ChatRepository
 import com.example.messageapp.model.Chat
 import com.example.messageapp.viewmodel.ChatListViewModel
@@ -32,11 +33,10 @@ fun ChatListScreen(
     LaunchedEffect(myUid) {
         if (myUid.isNotBlank()) {
             val repo = ChatRepository()
-            runCatching { repo.migrateVisibleForFor(myUid) }  // backfill
+            runCatching { repo.migrateVisibleForFor(myUid) }
             vm.start(myUid)
         }
     }
-
 
     var menu by remember { mutableStateOf(false) }
 
@@ -67,7 +67,6 @@ fun ChatListScreen(
             items(chats) { c ->
                 ChatRow(myUid = myUid, c = c) { onOpenChat(c.id!!) }
             }
-
         }
     }
 }
@@ -81,10 +80,10 @@ private fun ChatRow(
     val scope = rememberCoroutineScope()
     val repo = remember { ChatRepository() }
     var title by remember(c.id) { mutableStateOf(c.name ?: c.id ?: "") }
+    var photo by remember(c.id) { mutableStateOf<String?>(c.photoUrl) }
     var menu by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
 
-    // título: nome do outro usuário em chat direto
     LaunchedEffect(c.id, c.type, c.members, myUid) {
         if (c.type == "direct") {
             val other = c.members.firstOrNull { it != myUid }
@@ -92,8 +91,14 @@ private fun ChatRow(
                 val fs = com.google.firebase.firestore.FirebaseFirestore.getInstance()
                 val snap = fs.collection("users").document(other).get().await()
                 title = snap.getString("displayName") ?: "@${other.take(6)}"
+                photo = snap.getString("photoUrl")
             } else title = "Conversa"
-        } else title = c.name ?: "Grupo"
+        } else {
+            title = c.name ?: "Grupo"
+            if (photo == null) {
+                photo = c.photoUrl
+            }
+        }
     }
 
     val preview = remember(c.lastMessageEnc, c.lastMessage, c.pinnedSnippet) {
@@ -102,53 +107,66 @@ private fun ChatRow(
             ?: (c.lastMessage ?: "")
     }
 
-    ListItem(
-        headlineContent   = { Text(title) },
-        supportingContent = { if (preview.isNotBlank()) Text(preview) },
-        trailingContent = {
-            IconButton(onClick = { menu = true }) {
-                Icon(Icons.Default.MoreVert, contentDescription = null)
+    ElevatedCard(
+        onClick = onOpen,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Row(Modifier.fillMaxWidth().padding(12.dp)) {
+            AsyncImage(
+                model = photo,
+                contentDescription = null,
+                modifier = Modifier.size(44.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                if (preview.isNotBlank()) {
+                    Text(
+                        preview,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
             }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                // comum
-                DropdownMenuItem(
-                    text = { Text("Abrir") },
-                    onClick = { menu = false; onOpen() }
-                )
-
-                if (c.type == "direct") {
-                    DropdownMenuItem(
-                        text = { Text("Excluir conversa") },
-                        onClick = {
-                            menu = false
-                            confirm = "Excluir conversa? Ela sumirá só pra você."
-                        }
-                    )
-                } else {
-                    DropdownMenuItem(
-                        text = { Text("Sair do grupo") },
-                        onClick = {
-                            menu = false
-                            confirm = "Sair do grupo?"
-                        }
-                    )
-                    if (c.ownerId == myUid) {
+            Box {
+                IconButton(onClick = { menu = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = null)
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text("Abrir") }, onClick = { menu = false; onOpen() })
+                    if (c.type == "direct") {
                         DropdownMenuItem(
-                            text = { Text("Apagar grupo") },
+                            text = { Text("Excluir conversa") },
                             onClick = {
                                 menu = false
-                                confirm = "Apagar definitivamente o grupo?"
+                                confirm = "Excluir conversa? Ela sumirá só pra você."
                             }
                         )
+                    } else {
+                        DropdownMenuItem(
+                            text = { Text("Sair do grupo") },
+                            onClick = {
+                                menu = false
+                                confirm = "Sair do grupo?"
+                            }
+                        )
+                        if (c.ownerId == myUid) {
+                            DropdownMenuItem(
+                                text = { Text("Apagar grupo") },
+                                onClick = {
+                                    menu = false
+                                    confirm = "Apagar definitivamente o grupo?"
+                                }
+                            )
+                        }
                     }
                 }
             }
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onOpen() }
-    )
-    Divider()
+        }
+    }
 
     if (confirm != null) {
         AlertDialog(
@@ -175,4 +193,3 @@ private fun ChatRow(
         )
     }
 }
-

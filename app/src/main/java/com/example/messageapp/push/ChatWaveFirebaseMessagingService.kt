@@ -30,11 +30,10 @@ class ChatWaveFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        val chatId = message.data["chatId"] // pode ser null se a função não mandar
-        val title  = message.notification?.title ?: "Nova mensagem"
-        val body   = message.notification?.body  ?: "Você recebeu uma mensagem."
+        val chatId = message.data["chatId"] // Functions envia data-only
+        val title  = message.data["title"] ?: message.notification?.title ?: "Nova mensagem"
+        val body   = message.data["body"]  ?: message.notification?.body  ?: "Você recebeu uma mensagem."
 
-        // Canal único p/ todas as mensagens
         ensureChannel()
 
         val intent = Intent(this, MainActivity::class.java)
@@ -49,7 +48,7 @@ class ChatWaveFirebaseMessagingService : FirebaseMessagingService() {
         )
 
         val notification = NotificationCompat.Builder(this, "messages")
-            .setSmallIcon(R.mipmap.ic_launcher) // troque por um ícone seu se quiser
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)
@@ -57,17 +56,14 @@ class ChatWaveFirebaseMessagingService : FirebaseMessagingService() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
-        // Android 13+: precisa da permissão em runtime
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
                 this, Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
             if (!granted) return
         }
-
         if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) return
 
-        // Usa um ID estável por chat (agrupa notificações do mesmo chat)
         val notifyId = chatId?.hashCode() ?: (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
         NotificationManagerCompat.from(this).notify(notifyId, notification)
     }
@@ -84,3 +80,4 @@ class ChatWaveFirebaseMessagingService : FirebaseMessagingService() {
         }
     }
 }
+

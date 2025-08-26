@@ -35,14 +35,19 @@ class ChatRepository(
         return chatId
     }
 
-
+    /**
+     * ✅ Agora listamos por MEMBERS (e NÃO por visibleFor).
+     * - Chats antigos sem 'visibleFor' aparecem normalmente.
+     * - Chats ocultos continuam fora porque as REGRAS impedem leitura quando
+     *   'visibleFor' existe e NÃO contém o usuário.
+     * Requer o índice composto (members + updatedAt), que você já criou.
+     */
     fun observeChats(uid: String, onUpdate: (List<Chat>) -> Unit): ListenerRegistration =
         chats()
-            .whereArrayContains("visibleFor", uid)
+            .whereArrayContains("members", uid)
             .orderBy("updatedAt", Query.Direction.DESCENDING)
             .addSnapshotListener { qs, e ->
                 if (e != null) {
-                    // Não derruba a lista se der erro de permissão/rede
                     android.util.Log.w("ChatRepository", "observeChats error", e)
                     return@addSnapshotListener
                 }
@@ -51,8 +56,6 @@ class ChatRepository(
                 }.orEmpty()
                 onUpdate(items)
             }
-
-
 
     fun observeChat(chatId: String, onUpdate: (Chat?) -> Unit): ListenerRegistration =
         chats().document(chatId)
@@ -92,7 +95,6 @@ class ChatRepository(
         }
         batch.commit().await()
     }
-
 
     private fun markDeliveredForIncoming(chatId: String, myUid: String, items: List<Message>) {
         val ts = FieldValue.serverTimestamp()
@@ -205,9 +207,6 @@ class ChatRepository(
 
         return chatId
     }
-
-
-
 
     suspend fun renameGroup(chatId: String, name: String) {
         chats().document(chatId).update("name", name).await()
