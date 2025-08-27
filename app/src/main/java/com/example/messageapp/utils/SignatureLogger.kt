@@ -20,7 +20,6 @@ object SignatureLogger {
             val pkg = activity.packageName
 
             val signerBytes: List<ByteArray> = if (Build.VERSION.SDK_INT >= 28) {
-                // signingInfo pode ser null em devices antigos/estranhos → usa safe calls e fallback
                 val pi = pm.getPackageInfo(pkg, PackageManager.GET_SIGNING_CERTIFICATES)
                 val info = pi.signingInfo
                 when {

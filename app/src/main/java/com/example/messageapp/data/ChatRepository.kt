@@ -35,13 +35,6 @@ class ChatRepository(
         return chatId
     }
 
-    /**
-     * ✅ Agora listamos por MEMBERS (e NÃO por visibleFor).
-     * - Chats antigos sem 'visibleFor' aparecem normalmente.
-     * - Chats ocultos continuam fora porque as REGRAS impedem leitura quando
-     *   'visibleFor' existe e NÃO contém o usuário.
-     * Requer o índice composto (members + updatedAt), que você já criou.
-     */
     fun observeChats(uid: String, onUpdate: (List<Chat>) -> Unit): ListenerRegistration =
         chats()
             .whereArrayContains("members", uid)
@@ -102,9 +95,9 @@ class ChatRepository(
         items.forEach { m ->
             val already = m.deliveredTo.containsKey(myUid)
             val isIncoming = m.senderId != myUid
-            if (isIncoming && !already && m.id != null) {
+            if (isIncoming && !already && m.id.isNotBlank()) {
                 val ref = chats().document(chatId)
-                    .collection("messages").document(m.id!!)
+                    .collection("messages").document(m.id)
                 batch.update(ref, "deliveredTo.$myUid", ts)
             }
         }
@@ -139,9 +132,46 @@ class ChatRepository(
         }.await()
     }
 
+    suspend fun hideMessageForUser(chatId: String, messageId: String, uid: String) {
+        if (messageId.isBlank()) return
+        val ref = chats().document(chatId).collection("messages").document(messageId)
+        ref.update("deletedFor.$uid", true).await()
+    }
+
+    suspend fun deleteMessageForAll(chatId: String, messageId: String) {
+        if (messageId.isBlank()) return
+        val chatRef = chats().document(chatId)
+        val msgRef  = chatRef.collection("messages").document(messageId)
+
+        db.runBatch { b ->
+            b.update(
+                msgRef,
+                mapOf(
+                    "type" to "deleted",
+                    "textEnc" to "",
+                    "mediaUrl" to null,
+                    "deletedForAll" to true
+                )
+            )
+            b.update(
+                chatRef,
+                mapOf(
+                    "lastMessage" to "[mensagem apagada]",
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            )
+        }.await()
+    }
+
     suspend fun hideChatForUser(chatId: String, uid: String) {
         chats().document(chatId)
             .update("visibleFor", FieldValue.arrayRemove(uid))
+            .await()
+    }
+
+    suspend fun unhideChatForUser(chatId: String, uid: String) {
+        chats().document(chatId)
+            .update("visibleFor", FieldValue.arrayUnion(uid))
             .await()
     }
 
@@ -178,7 +208,7 @@ class ChatRepository(
 
     suspend fun markDelivered(chatId: String, messageId: String, uid: String) {
         val ref = chats().document(chatId).collection("messages").document(messageId)
-        ref.update("deliveredTo.$uid", FieldValue.serverTimestamp()).await()
+        ref.update("deliveredTo.$uid", com.google.firebase.firestore.FieldValue.serverTimestamp()).await()
     }
 
     suspend fun createGroup(

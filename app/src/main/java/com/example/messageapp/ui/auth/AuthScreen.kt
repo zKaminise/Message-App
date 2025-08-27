@@ -46,7 +46,6 @@ fun AuthScreen(
     }
 }
 
-/* =====================  E-MAIL  ===================== */
 
 @Composable
 private fun EmailAuthSection(
@@ -110,7 +109,6 @@ private fun EmailAuthSection(
     }
 }
 
-/* =====================  TELEFONE  ===================== */
 
 @Composable
 private fun PhoneAuthSection(

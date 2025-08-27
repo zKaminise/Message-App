@@ -5,7 +5,6 @@ import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 
 object StorageAcl {
-    // Usa o bucket padrão do projeto (o mesmo do Console)
     private val st = FirebaseStorage.getInstance()
 
     suspend fun ensureMemberMarker(chatId: String, uid: String) {

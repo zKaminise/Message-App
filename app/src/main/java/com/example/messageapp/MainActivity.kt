@@ -39,7 +39,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             LaunchedEffect(Unit) {
-                // Loga SHA-1 e SHA-256 do APK em tempo de execução
                 SignatureLogger.log(this@MainActivity)
             }
             MaterialTheme {
@@ -103,7 +102,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // Chat + ação de abrir a tela de informações
                     composable(
                         "chat/{chatId}",
                         arguments = listOf(navArgument("chatId") { type = NavType.StringType })
@@ -118,7 +116,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // Tela de informações do chat (implemente ChatInfoScreen separadamente)
                     composable(
                         "chatInfo/{chatId}",
                         arguments = listOf(navArgument("chatId") { type = NavType.StringType })

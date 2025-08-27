@@ -59,7 +59,6 @@ fun ProfileScreen(
             scope.launch {
                 busy = true
                 runCatching {
-                    // ⬇️ Sobe avatar e atualiza Firestore automaticamente
                     profileRepo.uploadAvatar(uri)
                 }.onSuccess { url ->
                     photoUrl = url
