@@ -5,18 +5,20 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
 import com.example.messageapp.data.AuthRepository
+import com.example.messageapp.data.ProfileRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -29,9 +31,9 @@ fun ProfileScreen(
 ) {
     val auth = remember { FirebaseAuth.getInstance() }
     val db   = remember { FirebaseFirestore.getInstance() }
-    val st   = remember { FirebaseStorage.getInstance() }
     val scope = rememberCoroutineScope()
     val repo = remember { AuthRepository() }
+    val profileRepo = remember { ProfileRepository() }
 
     val uid = auth.currentUser?.uid ?: return
 
@@ -39,6 +41,7 @@ fun ProfileScreen(
     var bio  by remember { mutableStateOf("") }
     var photoUrl by remember { mutableStateOf<String?>(auth.currentUser?.photoUrl?.toString()) }
     var msg by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
 
     LaunchedEffect(uid) {
         runCatching {
@@ -49,15 +52,22 @@ fun ProfileScreen(
         }
     }
 
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+    val pick = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
         if (uri != null) {
             scope.launch {
+                busy = true
                 runCatching {
-                    val ref = st.reference.child("avatars/$uid.jpg")
-                    ref.putFile(uri).await()
-                    ref.downloadUrl.await().toString()
-                }.onSuccess { url -> photoUrl = url }
-                    .onFailure { msg = it.message }
+                    // ⬇️ Sobe avatar e atualiza Firestore automaticamente
+                    profileRepo.uploadAvatar(uri)
+                }.onSuccess { url ->
+                    photoUrl = url
+                    msg = "Foto atualizada!"
+                }.onFailure { e ->
+                    msg = e.message
+                }
+                busy = false
             }
         }
     }
@@ -77,17 +87,29 @@ fun ProfileScreen(
         Column(modifier.padding(insets).padding(16.dp)) {
 
             val painter = rememberAsyncImagePainter(photoUrl)
-            Image(painter, contentDescription = null, modifier = Modifier.size(88.dp))
+            Image(
+                painter, contentDescription = null,
+                modifier = Modifier.size(96.dp).clip(CircleShape)
+            )
             Spacer(Modifier.height(6.dp))
-            OutlinedButton(onClick = { pick.launch("image/*") }) { Text("Trocar foto") }
+            OutlinedButton(
+                enabled = !busy,
+                onClick = { pick.launch("image/*") }
+            ) { Text(if (busy) "Enviando..." else "Trocar foto") }
 
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(name, { name = it }, label = { Text("Nome") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                value = name, onValueChange = { name = it },
+                label = { Text("Nome") }, modifier = Modifier.fillMaxWidth()
+            )
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(bio, { bio = it }, label = { Text("Bio") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                value = bio, onValueChange = { bio = it },
+                label = { Text("Bio") }, modifier = Modifier.fillMaxWidth()
+            )
 
             Spacer(Modifier.height(12.dp))
-            Button(onClick = {
+            Button(enabled = !busy, onClick = {
                 scope.launch {
                     runCatching {
                         val doc = db.collection("users").document(uid)
@@ -105,6 +127,7 @@ fun ProfileScreen(
 
             Spacer(Modifier.height(24.dp))
             OutlinedButton(
+                enabled = !busy,
                 onClick = {
                     scope.launch {
                         runCatching { repo.signOutAndRemoveToken() }

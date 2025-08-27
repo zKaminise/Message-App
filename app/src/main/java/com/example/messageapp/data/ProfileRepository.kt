@@ -17,10 +17,20 @@ class ProfileRepository(
         ).await()
     }
 
+    /**
+     * Sobe o avatar em: avatars/{uid}/avatar.jpg  (compatível com sua regra /avatars/{uid}/{rest=**})
+     * e atualiza o campo photoUrl no Firestore.
+     */
     suspend fun uploadAvatar(uri: Uri): String {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return ""
-        val ref = storage.reference.child("avatars/$uid.jpg")
-        ref.putFile(uri).await()
+        val ref = storage.reference.child("avatars/$uid/avatar.jpg")
+
+        // (opcional) definir content-type .jpg; o Firebase Storage detecta, mas não custa
+        val metadata = com.google.firebase.storage.StorageMetadata.Builder()
+            .setContentType("image/jpeg")
+            .build()
+
+        ref.putFile(uri, metadata).await()
         val url = ref.downloadUrl.await().toString()
         db.collection("users").document(uid).update("photoUrl", url).await()
         return url

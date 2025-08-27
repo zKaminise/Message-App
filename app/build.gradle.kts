@@ -72,6 +72,8 @@ dependencies {
     implementation("androidx.emoji2:emoji2:1.5.0")
     implementation("androidx.emoji2:emoji2-bundled:1.5.0")
 
+    implementation("androidx.compose.foundation:foundation")
+
 
     // --- Firebase: use UMA única BOM ---
     implementation(platform("com.google.firebase:firebase-bom:33.2.0"))
@@ -83,6 +85,7 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics-ktx")
 
     implementation("com.google.firebase:firebase-appcheck-playintegrity")
+    debugImplementation("com.google.firebase:firebase-appcheck-debug")
 
     // Para usar .await() nas Tasks do Firebase
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")

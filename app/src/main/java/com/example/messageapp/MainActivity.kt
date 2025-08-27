@@ -31,7 +31,6 @@ import com.example.messageapp.viewmodel.AuthViewModel
 import com.google.firebase.auth.FirebaseAuth
 import com.example.messageapp.utils.SignatureLogger
 
-
 class MainActivity : ComponentActivity() {
 
     private val authVm = AuthViewModel()
@@ -103,13 +102,32 @@ class MainActivity : ComponentActivity() {
                             onBack = { nav.popBackStack() }
                         )
                     }
+
+                    // Chat + ação de abrir a tela de informações
                     composable(
                         "chat/{chatId}",
                         arguments = listOf(navArgument("chatId") { type = NavType.StringType })
                     ) { backStack ->
                         val chatId = backStack.arguments?.getString("chatId").orEmpty()
                         val vm: com.example.messageapp.viewmodel.ChatViewModel = viewModel()
-                        ChatScreen(chatId = chatId, vm = vm, onBack = { nav.popBackStack() })
+                        ChatScreen(
+                            chatId = chatId,
+                            vm = vm,
+                            onBack = { nav.popBackStack() },
+                            onOpenInfo = { id -> nav.navigate("chatInfo/$id") } // ⬅️ NOVO
+                        )
+                    }
+
+                    // Tela de informações do chat (implemente ChatInfoScreen separadamente)
+                    composable(
+                        "chatInfo/{chatId}",
+                        arguments = listOf(navArgument("chatId") { type = NavType.StringType })
+                    ) { backStack ->
+                        val chatId = backStack.arguments?.getString("chatId").orEmpty()
+                        com.example.messageapp.ui.chat.ChatInfoScreen(
+                            chatId = chatId,
+                            onBack = { nav.popBackStack() }
+                        )
                     }
                 }
             }

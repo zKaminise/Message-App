@@ -1,17 +1,20 @@
 package com.example.messageapp.ui.chatlist
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.rememberAsyncImagePainter
 import com.example.messageapp.data.ChatRepository
 import com.example.messageapp.model.Chat
 import com.example.messageapp.viewmodel.ChatListViewModel
@@ -79,11 +82,11 @@ private fun ChatRow(
 ) {
     val scope = rememberCoroutineScope()
     val repo = remember { ChatRepository() }
-    var title by remember(c.id) { mutableStateOf(c.name ?: c.id ?: "") }
-    var photo by remember(c.id) { mutableStateOf<String?>(c.photoUrl) }
-    var menu by remember { mutableStateOf(false) }
-    var confirm by remember { mutableStateOf<String?>(null) }
 
+    var title by remember(c.id) { mutableStateOf(c.name ?: c.id ?: "") }
+    var avatar by remember(c.id) { mutableStateOf<String?>(c.photoUrl) }
+
+    // carrega nome e avatar do outro usuário em chat direto
     LaunchedEffect(c.id, c.type, c.members, myUid) {
         if (c.type == "direct") {
             val other = c.members.firstOrNull { it != myUid }
@@ -91,13 +94,14 @@ private fun ChatRow(
                 val fs = com.google.firebase.firestore.FirebaseFirestore.getInstance()
                 val snap = fs.collection("users").document(other).get().await()
                 title = snap.getString("displayName") ?: "@${other.take(6)}"
-                photo = snap.getString("photoUrl")
-            } else title = "Conversa"
+                avatar = snap.getString("photoUrl")
+            } else {
+                title = "Conversa"
+                avatar = null
+            }
         } else {
             title = c.name ?: "Grupo"
-            if (photo == null) {
-                photo = c.photoUrl
-            }
+            avatar = c.photoUrl
         }
     }
 
@@ -107,89 +111,36 @@ private fun ChatRow(
             ?: (c.lastMessage ?: "")
     }
 
-    ElevatedCard(
-        onClick = onOpen,
+    ListItem(
+        leadingContent = {
+            Avatar(avatar, title.take(1).uppercase())
+        },
+        headlineContent   = { Text(title) },
+        supportingContent = { if (preview.isNotBlank()) Text(preview, maxLines = 1) },
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-    ) {
-        Row(Modifier.fillMaxWidth().padding(12.dp)) {
-            AsyncImage(
-                model = photo,
-                contentDescription = null,
-                modifier = Modifier.size(44.dp)
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                if (preview.isNotBlank()) {
-                    Text(
-                        preview,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
-                    )
-                }
-            }
-            Box {
-                IconButton(onClick = { menu = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = null)
-                }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("Abrir") }, onClick = { menu = false; onOpen() })
-                    if (c.type == "direct") {
-                        DropdownMenuItem(
-                            text = { Text("Excluir conversa") },
-                            onClick = {
-                                menu = false
-                                confirm = "Excluir conversa? Ela sumirá só pra você."
-                            }
-                        )
-                    } else {
-                        DropdownMenuItem(
-                            text = { Text("Sair do grupo") },
-                            onClick = {
-                                menu = false
-                                confirm = "Sair do grupo?"
-                            }
-                        )
-                        if (c.ownerId == myUid) {
-                            DropdownMenuItem(
-                                text = { Text("Apagar grupo") },
-                                onClick = {
-                                    menu = false
-                                    confirm = "Apagar definitivamente o grupo?"
-                                }
-                            )
-                        }
-                    }
-                }
+            .clickable { onOpen() }
+    )
+    Divider()
+}
+
+@Composable
+private fun Avatar(url: String?, fallback: String) {
+    if (!url.isNullOrBlank()) {
+        Image(
+            painter = rememberAsyncImagePainter(url),
+            contentDescription = null,
+            modifier = Modifier.size(44.dp).clip(CircleShape)
+        )
+    } else {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(44.dp)
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                Text(fallback, style = MaterialTheme.typography.titleMedium)
             }
         }
-    }
-
-    if (confirm != null) {
-        AlertDialog(
-            onDismissRequest = { confirm = null },
-            title = { Text("Confirmação") },
-            text = { Text(confirm!!) },
-            confirmButton = {
-                TextButton(onClick = {
-                    val action = confirm
-                    confirm = null
-                    scope.launch {
-                        when (action) {
-                            "Excluir conversa? Ela sumirá só pra você." ->
-                                repo.hideChatForUser(c.id!!, myUid)
-                            "Sair do grupo?" ->
-                                repo.leaveGroup(c.id!!, myUid)
-                            "Apagar definitivamente o grupo?" ->
-                                repo.deleteGroup(c.id!!)
-                        }
-                    }
-                }) { Text("Confirmar") }
-            },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancelar") } }
-        )
     }
 }

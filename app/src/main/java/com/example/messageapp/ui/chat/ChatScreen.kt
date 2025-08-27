@@ -3,7 +3,6 @@ package com.example.messageapp.ui.chat
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -19,6 +18,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Image
@@ -38,6 +38,8 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.messageapp.data.StorageRepository
 import com.example.messageapp.model.Message
 import com.example.messageapp.storage.StorageAcl
@@ -52,7 +54,8 @@ import kotlinx.coroutines.launch
 fun ChatScreen(
     chatId: String,
     vm: ChatViewModel,
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onOpenInfo: (String) -> Unit = {}
 ) {
     val chat by vm.chat.collectAsState()
     val msgs by vm.messages.collectAsState()
@@ -63,42 +66,56 @@ fun ChatScreen(
     val storage = remember { StorageRepository() }
     val context = LocalContext.current
 
-    // --------- launchers (OK chamar .launch() no onClick) ----------
+    // ---------- Seletores (Storage Access Framework) ----------
     val pickImage = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
+        ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        if (uri != null && myUid.isNotBlank()) {
-            scope.launch { storage.sendMedia(chatId, myUid, uri, "image") }
+        uri?.let {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    it, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            if (myUid.isNotBlank()) scope.launch { storage.sendMedia(chatId, myUid, it, "image") }
         }
     }
     val pickVideo = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
+        ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        if (uri != null && myUid.isNotBlank()) {
-            scope.launch { storage.sendMedia(chatId, myUid, uri, "video") }
+        uri?.let {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    it, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            if (myUid.isNotBlank()) scope.launch { storage.sendMedia(chatId, myUid, it, "video") }
         }
     }
     val pickAudio = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        if (uri != null && myUid.isNotBlank()) {
-            context.contentResolver.takePersistableUriPermission(
-                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-            scope.launch { storage.sendMedia(chatId, myUid, uri, "audio") }
+        uri?.let {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    it, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            if (myUid.isNotBlank()) scope.launch { storage.sendMedia(chatId, myUid, it, "audio") }
         }
     }
     val pickFile = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        if (uri != null && myUid.isNotBlank()) {
-            context.contentResolver.takePersistableUriPermission(
-                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-            scope.launch { storage.sendMedia(chatId, myUid, uri, "file") }
+        uri?.let {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    it, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            if (myUid.isNotBlank()) scope.launch { storage.sendMedia(chatId, myUid, it, "file") }
         }
     }
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------
 
     LaunchedEffect(chatId) {
         vm.start(chatId)
@@ -127,23 +144,23 @@ fun ChatScreen(
         map.entries.map { it.key to it.value.toList() }
     }
 
-    // Controle do scroll-to-bottom
+    // Scroll-to-bottom
     val listState: LazyListState = rememberLazyListState()
-    val showScrollToBottom by remember {
-        derivedStateOf { listState.canScrollForward }
-    }
+    val showScrollToBottom by remember { derivedStateOf { listState.canScrollForward } }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Voltar")
-                    }
+                    IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Voltar") }
                 },
                 title = {
                     Column {
-                        Text(chat?.name ?: "Conversa", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            chat?.name ?: "Conversa",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         if (chat?.pinnedSnippet != null) {
                             Text(
                                 "Mensagem fixada",
@@ -154,9 +171,12 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { onOpenInfo(chatId) }) {
+                        Icon(Icons.Filled.MoreVert, "Informações")
+                    }
                     if (chat?.pinnedSnippet != null) {
                         IconButton(onClick = { vm.unpin(chatId) }) {
-                            Icon(Icons.Filled.PushPin, contentDescription = "Desafixar")
+                            Icon(Icons.Filled.PushPin, "Desafixar")
                         }
                     }
                 }
@@ -171,15 +191,13 @@ fun ChatScreen(
                             if (last >= 0) listState.animateScrollToItem(last)
                         }
                     }
-                ) {
-                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Ir para o fim")
-                }
+                ) { Icon(Icons.Filled.KeyboardArrowDown, "Ir para o fim") }
             }
         }
     ) { insets ->
         Column(Modifier.fillMaxSize().padding(insets)) {
 
-            // Banner da mensagem fixada
+            // Banner de mensagem fixada
             AnimatedVisibility(
                 visible = chat?.pinnedSnippet != null,
                 enter = fadeIn(), exit = fadeOut()
@@ -210,13 +228,13 @@ fun ChatScreen(
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             )
 
-            // Lista com sticky headers corretos
+            // Lista com sticky headers
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
-                grouped.forEach { (header, list) ->
+                for ((header, list) in grouped) {
                     stickyHeader {
                         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                             Divider(Modifier.weight(1f).padding(start = 12.dp))
@@ -241,27 +259,24 @@ fun ChatScreen(
                 }
             }
 
-            // Barra de anexos com ícones
+            // Ações de anexo
             Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = {
-                    pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }) { Icon(Icons.Outlined.Image, contentDescription = "Imagem") }
-
-                IconButton(onClick = {
-                    pickVideo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
-                }) { Icon(Icons.Outlined.VideoFile, contentDescription = "Vídeo") }
-
-                IconButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) {
-                    Icon(Icons.Outlined.Mic, contentDescription = "Áudio")
+                IconButton(onClick = { pickImage.launch(arrayOf("image/*")) }) {
+                    Icon(Icons.Outlined.Image, "Imagem")
                 }
-
+                IconButton(onClick = { pickVideo.launch(arrayOf("video/*")) }) {
+                    Icon(Icons.Outlined.VideoFile, "Vídeo")
+                }
+                IconButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) {
+                    Icon(Icons.Outlined.Mic, "Áudio")
+                }
                 IconButton(onClick = { pickFile.launch(arrayOf("*/*")) }) {
-                    Icon(Icons.Outlined.AttachFile, contentDescription = "Arquivo")
+                    Icon(Icons.Outlined.AttachFile, "Arquivo")
                 }
             }
 
@@ -296,7 +311,7 @@ fun ChatScreen(
     }
 }
 
-/* ----- Bolha de mensagem com destaque e ticks ----- */
+/* ----- Bolha de mensagem com destaque, mídia e ticks ----- */
 
 @Composable
 private fun MessageBubble(
@@ -309,35 +324,30 @@ private fun MessageBubble(
     val bgOther = MaterialTheme.colorScheme.surfaceVariant
     val textColor = MaterialTheme.colorScheme.onSurface
     val bubbleColor = if (isMine) bgMine else bgOther
+    val ctx = LocalContext.current
 
-    val plain = when (m.type) {
-        "text" -> Crypto.decrypt(m.textEnc)
-        "image" -> "[imagem]"
-        "video" -> "[vídeo]"
-        "audio" -> "[áudio]"
-        else -> "[arquivo]"
-    }
+    // Texto “limpo” (apenas usado para o caso type="text")
+    val plain = if (m.type == "text") Crypto.decrypt(m.textEnc) else ""
 
-    val content: AnnotatedString = if (!highlight.isNullOrBlank() && m.type == "text") {
-        val idx = plain.indexOf(highlight, ignoreCase = true)
-        if (idx >= 0) {
-            AnnotatedString.Builder().apply {
-                append(plain.substring(0, idx))
-                pushStyle(SpanStyle(background = Color.Yellow.copy(alpha = 0.4f)))
-                append(plain.substring(idx, idx + highlight.length))
-                pop()
-                append(plain.substring(idx + highlight.length))
-            }.toAnnotatedString()
+    val content: AnnotatedString =
+        if (!highlight.isNullOrBlank() && m.type == "text") {
+            val idx = plain.indexOf(highlight, ignoreCase = true)
+            if (idx >= 0) {
+                AnnotatedString.Builder().apply {
+                    append(plain.substring(0, idx))
+                    pushStyle(SpanStyle(background = Color.Yellow.copy(alpha = 0.4f)))
+                    append(plain.substring(idx, idx + highlight.length))
+                    pop()
+                    append(plain.substring(idx + highlight.length))
+                }.toAnnotatedString()
+            } else AnnotatedString(plain)
         } else AnnotatedString(plain)
-    } else AnnotatedString(plain)
 
-    val sent = true // chegou ao servidor
+    val sent = true
     val delivered = m.deliveredTo.isNotEmpty()
     val read = m.readBy.isNotEmpty()
 
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)
-    ) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)) {
         if (!isMine) Spacer(Modifier.weight(0.15f)) else Spacer(Modifier.weight(0.35f))
         Surface(
             color = bubbleColor,
@@ -348,7 +358,73 @@ private fun MessageBubble(
                 .pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPressPin() }) }
         ) {
             Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                Text(content, color = textColor)
+
+                when (m.type) {
+                    "text" -> {
+                        Text(content, color = textColor)
+                    }
+                    "image" -> {
+                        // Renderiza a imagem enviada
+                        if (!m.mediaUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(ctx)
+                                    .data(m.mediaUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Imagem",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 120.dp, max = 260.dp)
+                            )
+                        } else {
+                            Text("[imagem]", color = textColor)
+                        }
+                    }
+                    "video" -> {
+                        // Mostra um “arquivo de vídeo” clicável (abre player externo)
+                        TextButton(
+                            onClick = {
+                                runCatching {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(m.mediaUrl))
+                                    ctx.startActivity(intent)
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Outlined.VideoFile, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Abrir vídeo")
+                        }
+                    }
+                    "audio" -> {
+                        TextButton(
+                            onClick = {
+                                runCatching {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(m.mediaUrl))
+                                    ctx.startActivity(intent)
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Outlined.Mic, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Reproduzir áudio")
+                        }
+                    }
+                    else -> {
+                        TextButton(
+                            onClick = {
+                                runCatching {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(m.mediaUrl))
+                                    ctx.startActivity(intent)
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Outlined.AttachFile, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Abrir arquivo")
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
