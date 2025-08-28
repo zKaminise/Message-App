@@ -69,4 +69,5 @@ Alunos:
 - Gabriel Misao
 - Caroline Cortes
 - Angelo Toshio
+- Joao Vitor
 
