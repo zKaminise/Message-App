@@ -88,11 +88,19 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("groupNew") {
                         GroupCreateScreen(
-                            onCreated = { id -> nav.navigate("chat/$id") { popUpTo("home") { inclusive = true } } },
+                            onCreated = { id ->
+                                // Remove "groupNew" do back stack e abre o chat.
+                                nav.navigate("chat/$id") {
+                                    popUpTo("groupNew") { inclusive = true }  // <- remove a tela de criação
+                                    launchSingleTop = true                     // evita abrir o mesmo chat 2x
+                                }
+                            },
                             onCancel = { nav.popBackStack() },
-                            onBack = { nav.popBackStack() }
+                            onBack   = { nav.popBackStack() }
                         )
                     }
+
+
                     composable("profile") {
                         ProfileScreen(
                             onLoggedOut = {

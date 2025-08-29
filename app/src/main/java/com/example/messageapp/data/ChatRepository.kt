@@ -9,6 +9,9 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.tasks.await
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class ChatRepository(
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
@@ -217,8 +220,11 @@ class ChatRepository(
         members: List<String>,
         photoUrl: String? = null
     ): String {
-        val allMembers = members.distinct()
+        val allMembers = (members + ownerId).distinct()
+
         val doc = chats().document()
+        val chatId = doc.id
+
         val data = mutableMapOf<String, Any>(
             "type" to "group",
             "name" to name,
@@ -230,10 +236,12 @@ class ChatRepository(
         if (photoUrl != null) data["photoUrl"] = photoUrl
 
         doc.set(data).await()
-        val chatId = doc.id
-        allMembers.forEach { uid -> StorageAcl.ensureMemberMarker(chatId, uid) }
 
-        runCatching { StorageAcl.ensureMemberMarker(chatId, ownerId) }
+        CoroutineScope(Dispatchers.IO).launch {
+            allMembers.forEach { uid ->
+                runCatching { StorageAcl.ensureMemberMarker(chatId, uid) }
+            }
+        }
 
         return chatId
     }

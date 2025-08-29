@@ -41,19 +41,22 @@ fun GroupCreateScreen(
     val selected = remember { mutableStateListOf<String>() }
     var photoUri by remember { mutableStateOf<Uri?>(null) }
     var msg by remember { mutableStateOf<String?>(null) }
+    var creating by remember { mutableStateOf(false) }
 
+    // Garante eu mesmo selecionado
     LaunchedEffect(myUid) {
         if (myUid.isNotBlank() && !selected.contains(myUid)) selected += myUid
     }
 
+    // Carrega usuários (simples)
     LaunchedEffect(Unit) {
-        db.collection("users").get().addOnSuccessListener { qs ->
-            users = qs.documents.mapNotNull {
-                val uid = it.id
-                val nameU = it.getString("displayName") ?: "@${uid.take(6)}"
-                val photo = it.getString("photoUrl")
-                UserItem(uid, nameU, photo)
-            }
+        val qs = db.collection("users").get().await()
+        users = qs.documents.map { d ->
+            UserItem(
+                uid = d.id,
+                name = d.getString("displayName") ?: "@${d.id.take(6)}",
+                photo = d.getString("photoUrl")
+            )
         }
     }
 
@@ -65,7 +68,7 @@ fun GroupCreateScreen(
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(enabled = !creating, onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Voltar")
                     }
                 },
@@ -76,11 +79,15 @@ fun GroupCreateScreen(
         Column(Modifier.padding(insets).padding(16.dp)) {
             OutlinedTextField(
                 value = name, onValueChange = { name = it },
-                label = { Text("Nome do grupo") }, modifier = Modifier.fillMaxWidth()
+                label = { Text("Nome do grupo") },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !creating
             )
             Spacer(Modifier.height(8.dp))
             Row {
-                OutlinedButton(onClick = { pick.launch("image/*") }) { Text("Foto do grupo") }
+                OutlinedButton(enabled = !creating, onClick = { pick.launch("image/*") }) {
+                    Text(if (photoUri == null) "Foto do grupo" else "Trocar foto")
+                }
                 Spacer(Modifier.width(12.dp))
                 photoUri?.let { Image(rememberAsyncImagePainter(it), null, Modifier.size(48.dp)) }
             }
@@ -100,6 +107,7 @@ fun GroupCreateScreen(
                             Checkbox(
                                 checked = checked,
                                 onCheckedChange = {
+                                    if (creating) return@Checkbox
                                     if (it) selected.add(u.uid) else selected.remove(u.uid)
                                 }
                             )
@@ -111,39 +119,51 @@ fun GroupCreateScreen(
 
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onCancel) { Text("Cancelar") }
-                Button(onClick = {
-                    val trimmed = name.trim()
-                    if (trimmed.isEmpty()) { msg = "Informe o nome do grupo"; return@Button }
-                    if (selected.isEmpty()) { msg = "Selecione ao menos 1 participante"; return@Button }
+                OutlinedButton(enabled = !creating, onClick = onCancel) { Text("Cancelar") }
+                Button(
+                    enabled = !creating,
+                    onClick = {
+                        val trimmed = name.trim()
+                        if (trimmed.isEmpty()) { msg = "Informe o nome do grupo"; return@Button }
+                        if (selected.isEmpty()) { msg = "Selecione ao menos 1 participante"; return@Button }
 
-                    scope.launch {
-                        runCatching {
-                            val chatId = repo.createGroup(
-                                name = trimmed,
-                                ownerId = myUid,
-                                members = selected.toList(),
-                                photoUrl = null // setaremos depois se tiver foto
-                            )
+                        creating = true
+                        scope.launch {
+                            try {
+                                // 1) Cria o grupo
+                                val chatId = repo.createGroup(
+                                    name = trimmed,
+                                    ownerId = myUid,
+                                    members = selected.toList(),
+                                    photoUrl = null // setaremos depois
+                                )
 
-                            val finalPhotoUrl = if (photoUri != null) {
-                                val ref = st.reference.child("chats/$chatId/group_photo.jpg")
-                                ref.putFile(photoUri!!).await()
-                                ref.downloadUrl.await().toString()
-                            } else null
+                                // 2) NAVEGA JÁ pro chat
+                                onCreated(chatId)
 
-                            if (finalPhotoUrl != null) {
-                                repo.updateGroupMeta(chatId, name = null, photoUrl = finalPhotoUrl)
+                                // 3) (Assíncrono) sobe foto e atualiza photoUrl
+                                if (photoUri != null) {
+                                    runCatching {
+                                        val ref = st.reference.child("chats/$chatId/avatar.jpg")
+                                        ref.putFile(photoUri!!).await()
+                                        val url = ref.downloadUrl.await().toString()
+                                        repo.updateGroupMeta(chatId, name = null, photoUrl = url)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                msg = e.message
+                            } finally {
+                                creating = false
                             }
-
-                            chatId
-                        }.onSuccess { id -> onCreated(id) }
-                            .onFailure { e -> msg = e.message }
+                        }
                     }
-                }) { Text("Criar") }
+                ) { Text(if (creating) "Criando…" else "Criar") }
             }
 
-            msg?.let { Spacer(Modifier.height(8.dp)); Text(it, color = MaterialTheme.colorScheme.error) }
+            msg?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = MaterialTheme.colorScheme.error)
+            }
         }
     }
 }
