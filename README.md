@@ -31,9 +31,11 @@ Mensageiro simples com 1:1 e grupos, **envio de mídia**, **mensagens fixadas**,
 
 ## 📱 Instalação e Testes
 
-### 1. Instalar via APK
-Você pode baixar e instalar o app diretamente:  
-👉 [Baixar APK](./apk/app-debug.apk)
+[![Latest release](https://img.shields.io/github/v/release/zKaminise/Message-App?display_name=tag)](https://github.com/zKaminise/Message-App/releases/latest)
+
+**APK (v1.0):**  
+[⬇️ Baixar MessageApp-1.0.apk](https://github.com/zKaminise/Message-App/releases/download/v1.0/MessageApp-1.0.apk)
+
 
 ### 2. Clonar e rodar no Android Studio
 ```bash
