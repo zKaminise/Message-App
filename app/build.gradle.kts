@@ -2,13 +2,11 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-
     id("com.google.gms.google-services")
 }
 
 android {
     namespace = "com.example.messageapp"
-    // Se você NÃO tiver o Android 36 instalado no SDK Manager, use 34.
     compileSdk = 36
 
     defaultConfig {
@@ -17,12 +15,21 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    buildFeatures {
+        buildConfig = true
+        compose = true
+    }
+
     buildTypes {
+        debug {
+            buildConfigField("String", "APP_CRYPT_KEY_B64", "\"ov4PWU8ttgkhOB1ZkSxtJDpdDAcheTXFDRyrzp6+TTw=\"")
+            isMinifyEnabled = false
+        }
         release {
+            buildConfigField("String", "APP_CRYPT_KEY_B64", "\"ov4PWU8ttgkhOB1ZkSxtJDpdDAcheTXFDRyrzp6+TTw=\"")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -31,14 +38,11 @@ android {
         }
     }
 
-    // Recomendo compilar com Java 17 (AGP moderno gosta de 17)
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-
-    buildFeatures { compose = true }
 }
 
 dependencies {
@@ -75,7 +79,6 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
 
 
-    // --- Firebase: use UMA única BOM ---
     implementation(platform("com.google.firebase:firebase-bom:33.2.0"))
 
     implementation("com.google.firebase:firebase-auth-ktx")
@@ -87,6 +90,5 @@ dependencies {
     implementation("com.google.firebase:firebase-appcheck-playintegrity")
     debugImplementation("com.google.firebase:firebase-appcheck-debug")
 
-    // Para usar .await() nas Tasks do Firebase
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 }

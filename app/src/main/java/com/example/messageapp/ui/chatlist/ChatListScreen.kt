@@ -86,7 +86,7 @@ fun ChatListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (showHidden) "Conversas ocultas" else "Mensagens") },
+                title = { Text(if (showHidden) "Conversas Arquivadas" else "Mensagens") },
                 actions = {
                     IconButton(onClick = { topMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = null)
@@ -94,7 +94,7 @@ fun ChatListScreen(
                     DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
                         // Alterna entre ativas e ocultas
                         DropdownMenuItem(
-                            text = { Text(if (showHidden) "Ver conversas ativas" else "Ver conversas ocultas") },
+                            text = { Text(if (showHidden) "Ver conversas ativas" else "Ver conversas Arquivadas") },
                             onClick = { topMenu = false; showHidden = !showHidden }
                         )
                         DropdownMenuItem(text = { Text("Contatos") }, onClick = {
@@ -299,12 +299,12 @@ private fun ChatRowMenu(
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         if (isHiddenList) {
             DropdownMenuItem(
-                text = { Text("Reexibir conversa") },
+                text = { Text("Desarquivar conversa") },
                 onClick = onUnhide
             )
         } else {
             DropdownMenuItem(
-                text = { Text("Esconder conversa") },
+                text = { Text("Arquivar conversa") },
                 onClick = onHide
             )
             if (chat.type == "direct") {
