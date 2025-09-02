@@ -18,18 +18,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    buildFeatures {
-        buildConfig = true
-        compose = true
-    }
-
     buildTypes {
-        debug {
-            buildConfigField("String", "APP_CRYPT_KEY_B64", "\"ov4PWU8ttgkhOB1ZkSxtJDpdDAcheTXFDRyrzp6+TTw=\"")
-            isMinifyEnabled = false
-        }
         release {
-            buildConfigField("String", "APP_CRYPT_KEY_B64", "\"ov4PWU8ttgkhOB1ZkSxtJDpdDAcheTXFDRyrzp6+TTw=\"")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
