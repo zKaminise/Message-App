@@ -58,7 +58,6 @@ fun ChatListScreen(
     LaunchedEffect(myUid) {
         if (myUid.isNotBlank()) {
             val repo = ChatRepository()
-            runCatching { repo.migrateVisibleForFor(myUid) }
             vm.start(myUid)
         }
     }
