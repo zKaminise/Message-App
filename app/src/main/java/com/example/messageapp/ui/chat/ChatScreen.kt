@@ -10,7 +10,18 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -27,8 +38,34 @@ import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Send
 import androidx.compose.material.icons.outlined.VideoFile
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Divider
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,7 +74,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,12 +109,16 @@ fun ChatScreen(
     val msgs by vm.messages.collectAsState()
     val myUid = remember { FirebaseAuth.getInstance().currentUser?.uid.orEmpty() }
     val scope = rememberCoroutineScope()
+
+    // Campo de mensagem e busca
     var input by remember { mutableStateOf(TextFieldValue("")) }
     var query by remember { mutableStateOf(TextFieldValue("")) }
+
     val storage = remember { StorageRepository() }
     val repo = remember { ChatRepository() }
     val context = LocalContext.current
 
+    // Pickers de mídia/arquivo
     val pickImage = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -134,6 +177,7 @@ fun ChatScreen(
     }
     DisposableEffect(Unit) { onDispose { vm.stop() } }
 
+    // Carregar autores (nomes/fotos) dos remetentes
     val users = remember { mutableStateMapOf<String, SenderUi>() }
     val senderIds = remember(msgs) { msgs.map { it.senderId }.toSet() }
     val db = remember { FirebaseFirestore.getInstance() }
@@ -154,10 +198,10 @@ fun ChatScreen(
         }
     }
 
+    // Filtro local por palavra-chave (descriptografando onde for texto)
     val q = query.text.trim()
     val filtered: List<Message> = remember(msgs, q, myUid) {
-        val base = msgs
-            .filter { !it.deletedFor.getOrDefault(myUid, false) } // esconde minhas excluídas
+        val base = msgs.filter { !it.deletedFor.getOrDefault(myUid, false) }
         if (q.isBlank()) base else base.filter {
             if (it.type != "text") return@filter false
             val plain = Crypto.decrypt(it.textEnc)
@@ -165,6 +209,7 @@ fun ChatScreen(
         }
     }
 
+    // Agrupa por cabeçalho de data
     val grouped: List<Pair<String, List<Message>>> = remember(filtered) {
         val map = linkedMapOf<String, MutableList<Message>>()
         filtered.forEach { m ->
@@ -172,6 +217,27 @@ fun ChatScreen(
             map.getOrPut(header) { mutableListOf() }.add(m)
         }
         map.entries.map { it.key to it.value.toList() }
+    }
+
+    // Navegação entre resultados da busca
+    val matchIds: List<String> = remember(filtered, q) {
+        if (q.isBlank()) emptyList() else filtered
+            .filter { it.type == "text" && Crypto.decrypt(it.textEnc).contains(q, ignoreCase = true) }
+            .map { it.id }
+    }
+    var currentMatchIdx by remember(q) { mutableIntStateOf(0) }
+
+    fun indexOfMessageInList(targetId: String): Int {
+        var idx = 0
+        for ((_, list) in grouped) {
+            // header sticky
+            idx += 1
+            for (m in list) {
+                if (m.id == targetId) return idx
+                idx += 1
+            }
+        }
+        return -1
     }
 
     var selected by remember { mutableStateOf<Message?>(null) }
@@ -228,6 +294,7 @@ fun ChatScreen(
     ) { insets ->
         Column(Modifier.fillMaxSize().padding(insets)) {
 
+            // Barra com mensagem fixada (se houver)
             AnimatedVisibility(
                 visible = chat?.pinnedSnippet != null,
                 enter = fadeIn(), exit = fadeOut()
@@ -247,6 +314,7 @@ fun ChatScreen(
                 }
             }
 
+            // Campo de busca na conversa
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -257,6 +325,47 @@ fun ChatScreen(
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             )
 
+            // Controles de navegação entre resultados
+            if (q.isNotBlank()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        if (matchIds.isEmpty()) "0 resultados"
+                        else "${currentMatchIdx + 1}/${matchIds.size} resultados",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    Spacer(Modifier.weight(1f))
+                    OutlinedButton(
+                        enabled = matchIds.isNotEmpty(),
+                        onClick = {
+                            if (matchIds.isNotEmpty()) {
+                                currentMatchIdx = (currentMatchIdx - 1 + matchIds.size) % matchIds.size
+                                val id = matchIds[currentMatchIdx]
+                                val idx = indexOfMessageInList(id)
+                                if (idx >= 0) scope.launch { listState.animateScrollToItem(idx) }
+                            }
+                        }
+                    ) { Text("Anterior") }
+                    OutlinedButton(
+                        enabled = matchIds.isNotEmpty(),
+                        onClick = {
+                            if (matchIds.isNotEmpty()) {
+                                currentMatchIdx = (currentMatchIdx + 1) % matchIds.size
+                                val id = matchIds[currentMatchIdx]
+                                val idx = indexOfMessageInList(id)
+                                if (idx >= 0) scope.launch { listState.animateScrollToItem(idx) }
+                            }
+                        }
+                    ) { Text("Próximo") }
+                }
+            }
+
+            // Lista de mensagens (filtrada) com headers por data
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f),
@@ -280,13 +389,15 @@ fun ChatScreen(
                             m = m,
                             isMine = m.senderId == myUid,
                             author = users[m.senderId],
-                            onLongPress = { selected = m }
+                            onLongPress = { selected = m },
+                            highlight = q // <- destaca o termo encontrado
                         )
-                        Spacer(Modifier.height(2.dp))
+                        Spacer(Modifier.heightIn(min = 2.dp))
                     }
                 }
             }
 
+            // Ações de anexar
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -307,6 +418,7 @@ fun ChatScreen(
                 }
             }
 
+            // Caixa de mensagem + enviar
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -336,6 +448,7 @@ fun ChatScreen(
         }
     }
 
+    // Dialog de ações da mensagem
     val selectedMsg = selected
     if (selectedMsg != null) {
         val isMine = selectedMsg.senderId == myUid
@@ -345,22 +458,21 @@ fun ChatScreen(
             title = { Text("Ações da mensagem") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Fixar (só se não for placeholder)
                     if (!isDeletedAll) {
                         TextButton(onClick = {
                             vm.pin(chatId, selectedMsg)
                             selected = null
                         }) { Text("Fixar") }
                     }
-
                     TextButton(onClick = {
-                        scope.launch {
-                            repo.hideMessageForUser(chatId, selectedMsg.id, myUid)
-                            selected = null
+                        val uid = myUid
+                        if (uid.isNotBlank()) {
+                            scope.launch {
+                                repo.hideMessageForUser(chatId, selectedMsg.id, uid)
+                                selected = null
+                            }
                         }
                     }) { Text("Excluir para mim") }
-
-                    // Excluir para todos (só se a msg é minha e ainda não está apagada global)
                     if (isMine && !isDeletedAll) {
                         TextButton(onClick = {
                             scope.launch {
@@ -379,13 +491,13 @@ fun ChatScreen(
     }
 }
 
-
 @Composable
 private fun MessageBubble(
     m: Message,
     isMine: Boolean,
     author: SenderUi?,
-    onLongPress: () -> Unit
+    onLongPress: () -> Unit,
+    highlight: String
 ) {
     val bgMine = MaterialTheme.colorScheme.primaryContainer
     val bgOther = MaterialTheme.colorScheme.surfaceVariant
@@ -396,7 +508,34 @@ private fun MessageBubble(
     val isDeletedAll = m.deletedForAll || m.type == "deleted"
 
     val plain = if (m.type == "text") Crypto.decrypt(m.textEnc) else ""
-    val content: AnnotatedString = AnnotatedString(plain)
+
+    @Composable
+    fun buildHighlighted(text: String, query: String): AnnotatedString {
+        if (query.isBlank() || text.isBlank()) return AnnotatedString(text)
+        val lower = text.lowercase()
+        val q = query.lowercase()
+
+        val b = AnnotatedString.Builder()
+        var i = 0
+        while (i < text.length) {
+            val found = lower.indexOf(q, startIndex = i)
+            if (found < 0) {
+                b.append(text.substring(i))
+                break
+            }
+            if (found > i) b.append(text.substring(i, found))
+            b.pushStyle(
+                SpanStyle(
+                    background = MaterialTheme.colorScheme.secondary.copy(alpha = 0.35f),
+                    fontWeight = FontWeight.SemiBold
+                )
+            )
+            b.append(text.substring(found, found + query.length))
+            b.pop()
+            i = found + query.length
+        }
+        return b.toAnnotatedString()
+    }
 
     val sent = true
     val delivered = m.deliveredTo.isNotEmpty()
@@ -430,7 +569,8 @@ private fun MessageBubble(
                     )
                 }
 
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.width(0.dp))
+                Spacer(Modifier.heightIn(min = 6.dp))
 
                 if (isDeletedAll) {
                     Text(
@@ -441,6 +581,9 @@ private fun MessageBubble(
                 } else {
                     when (m.type) {
                         "text" -> {
+                            val content =
+                                if (highlight.isBlank()) AnnotatedString(plain)
+                                else buildHighlighted(plain, highlight)
                             Text(content, color = textColor)
                         }
                         "image" -> {
@@ -504,7 +647,7 @@ private fun MessageBubble(
                     }
                 }
 
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.heightIn(min = 4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         Time.timeFor(m.createdAt),
